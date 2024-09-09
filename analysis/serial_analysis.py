@@ -752,6 +752,11 @@ def hex4(x: int) -> str:
     return f"{x:04X}"
 
 
+def hex4_i(x) -> str:
+    '''Convert x to be a 4-digit hex value. Try to force x to be an int.'''
+    return hex4(int(x))
+
+
 def bin16(x: int) -> str:
     if not isinstance(x, int): 
         raise TypeError("'x' should be an int")

@@ -1013,13 +1013,18 @@ void doMultipleDumps(void) {
 
 
 // Get the hamming weight for an integer
-unsigned short intHammingWeight(unsigned long x) {
-    unsigned short hWeight = 0;
+short int intHammingWeight(unsigned long x) {
+    short int hWeight = 0;
     while (x) {
       hWeight++;
       x &= x - 1;
     }
     return hWeight;
+}
+
+
+short int intHammingDistance(unsigned long x, unsigned long y) {
+  return intHammingWeight(x ^ y);
 }
 
 
@@ -1319,6 +1324,39 @@ void loop() {
         runRemanenceExperimentInternal(start_ms, stop_ms, step_ms);
       }
       beep();
+    } break;
+  case 16:
+    {
+      // Read some chip A data, then read another (B) one and calculate the Hamming distance between A and B.
+      constexpr int numCompareWords  = 10000; // words
+      double maxPercentSimilar = 0.05;
+
+      Serial.println("Reading data from current chip...");
+      uint16_t wordsA[numCompareWords];
+      for (int i = 0; i < numCompareWords; i++) {
+        wordsA[i] = readWord(i);
+      }
+      
+      Serial.println("Put in another chip to read...");
+      promptForDecimalNumber("(enter to continue) > ");
+
+      int hammingDistanceSum = 0;
+      for (int i = 0; i < numCompareWords; i++) {
+        uint16_t wordB = readWord(i);
+        intHammingDistance(wordsA[i], wordB);
+      }
+      double percentDifference = (double) hammingDistanceSum / numCompareWords;
+
+      Serial.print("Hamming distance = ");
+      Serial.print(percentDifference);
+      Serial.println("%");
+
+      if (percentDifference > maxPercentSimilar) {
+        Serial.println("Are they the same chip? NO");
+      }
+      else {
+        Serial.println("Are they the same chip? NO");
+      }
     } break;
   default:
     {

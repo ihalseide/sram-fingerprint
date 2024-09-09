@@ -1354,7 +1354,7 @@ void loop() {
         Serial.println("Are they the same chip? NO");
       }
       else {
-        Serial.println("Are they the same chip? NO");
+        Serial.println("Are they the same chip? YES");
       }
     } break;
   default:

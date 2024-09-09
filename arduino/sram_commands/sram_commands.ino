@@ -1107,7 +1107,7 @@ void beep(void) {
 
 
 void printChoices(void) {
-  Serial.println("Available command choices:");
+  Serial.println("===== Available command choices =====");
   Serial.println("  1) SRAM dump memory range (read)");
   Serial.println("  2) SRAM fill memory range (write)");
   Serial.println("  3) SRAM power cycle (restart)");
@@ -1123,31 +1123,29 @@ void printChoices(void) {
   Serial.println(" 13) SRAM power-off");
   Serial.println(" 14) SRAM multiple cycles of Hamming Weight");
   Serial.println(" 15) Do #6 multiple times");
+  Serial.println(" 16) Calculate Hamming distance between two chips");
 }
 
 
 void setup() {
   Serial.begin(115200);
   Serial.println("Arduino connected.");
+
   // Setup pins to SRAM chip
   setupControlPins();
   setupAddressPins();
+
   // Reset SRAM chip
   turnOffSRAM();
   delay(1000);
   turnOnSRAM();
+
   // Check SRAM chip socket connection
   Serial.print("Now checking if the SRAM chip is in the socket correctly...");
   Serial.println(checkConnectedChip() ? "\nOK." : "\n\aSRAM chip is NOT connected!");
+
   // Print out command choices for the first time
   printChoices();
-  // if (randomSequenceBegin(10)) {
-  //   int i;
-  //   while ((i = randomSequenceNext()) >= 0) {
-  //     Serial.print(i);
-  //     Serial.print(' ');
-  //   }
-  // }
 }
 
 
@@ -1304,6 +1302,7 @@ void loop() {
     } break;
   case 15:
     {
+      // Run multiple runs of the remenance experiment
       if (wordStorageCount == 0) {
         Serial.println("error: no image available in cache");
         break;
@@ -1336,7 +1335,7 @@ void loop() {
       for (int i = 0; i < numCompareWords; i++) {
         wordsA[i] = readWord(i);
       }
-      
+
       Serial.println("Put in another chip to read...");
       promptForDecimalNumber("(enter to continue) > ");
 

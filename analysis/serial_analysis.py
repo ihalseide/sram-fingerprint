@@ -17,28 +17,6 @@ NUM_BITS = BITS_PER_WORD * NUM_WORDS
 HEX4_WORD_PATTERN = re.compile(r"[a-f0-9]{4}", re.IGNORECASE)
 
 
-def main():
-    print("[INFO] Serial Analysis - main()")
-    test()
-    # print(f"Number of data words: {NUM_WORDS:,}")
-    # print(f"Number of data bits: {NUM_BITS:,}")
-
-    # bit_diff_files("chip inh2 gold PUF/gold PUF.txt", "chip inh2 gold PUF/capture 1.txt")
-
-    # for i in range(1,12):
-    #     bit_diff_files("chip inh2 gold PUF/gold PUF.txt", f"chip inh2 gold PUF/capture {i}.txt")
-
-    #diff_puf_and_trials_dump("chips/inh1/gold PUF.txt", "remenance experiment 19.txt", 1024)
-
-    # with open(r"serial-data\inh1-90nm-other-setup-pattern-test.txt", "rb") as f:
-    #     check_file_increasing(f)
-
-    # convert_hex_file(r"Monalisa\test_monalisa_hex.txt", r"Monalisa\test_monalisa_hex4.txt")
-    # create_gold_puf_v2(11, r"serial-data\inh3-250nm-captures-for-puf-1.txt", "output.txt")
-
-    # diff_puf_and_multi_capture(r"output.txt", r"serial-data\inh3-250nm-captures-for-puf-1.txt")
-
-
 def main_create_gold_puf():
     num_captures = 11
     assert(num_captures % 2 != 0) # must be odd so there are no voting ties
@@ -1103,7 +1081,3 @@ def file_load_trial_for_delay(file_name: str, delay_ms: float, max_count: int|No
         if max_count is not None:
             num_words = min(num_words, max_count)
         return file_load_words(file_in, num_words)
-        
-
-if __name__ == '__main__':
-    main()

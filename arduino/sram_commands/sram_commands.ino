@@ -1128,30 +1128,7 @@ void printChoices(void) {
 }
 
 
-void setup() {
-  Serial.begin(115200);
-  Serial.println("Arduino connected.");
-
-  // Setup pins to SRAM chip
-  setupControlPins();
-  setupAddressPins();
-
-  // Reset SRAM chip
-  turnOffSRAM();
-  delay(1000);
-  turnOnSRAM();
-
-  // Check SRAM chip socket connection
-  Serial.print("Now checking if the SRAM chip is in the socket correctly...");
-  Serial.println(checkConnectedChip() ? "\nOK." : "\n\aSRAM chip is NOT connected!");
-
-  // Print out command choices for the first time
-  printChoices();
-}
-
-
-void loop() {
-  auto choice = promptForDecimalNumber("Enter choice number: ");
+void handleCommandNumber(int choice) {
   switch (choice) {
   case 1:
     {
@@ -1413,4 +1390,32 @@ void loop() {
       printChoices();
     } break;
   }
+}
+
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("Arduino connected.");
+
+  // Setup pins to SRAM chip
+  setupControlPins();
+  setupAddressPins();
+
+  // Reset SRAM chip
+  turnOffSRAM();
+  delay(1000);
+  turnOnSRAM();
+
+  // Check SRAM chip socket connection
+  Serial.print("Now checking if the SRAM chip is in the socket correctly...");
+  Serial.println(checkConnectedChip() ? "\nOK." : "\n\aSRAM chip is NOT connected!");
+
+  // Print out command choices for the first time
+  printChoices();
+}
+
+
+void loop() {
+  auto choice = promptForDecimalNumber("Enter choice number: ");
+  handleCommandNumber(choice);
 }

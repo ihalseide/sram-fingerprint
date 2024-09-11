@@ -1370,7 +1370,7 @@ void loop() {
         break;
       }
       int delay = promptForDecimalNumber("Set a power-off time between cycles (ms): ");
-      int count = promptForDecimalNumber("Use address range 0 up to:");
+      int count = promptForDecimalNumber("Use address range 0 up to: ");
       if (count == 0) {
         Serial.println("(Got 0, replacing with NUM_WORDS)");
         count = NUM_WORDS;
@@ -1378,10 +1378,12 @@ void loop() {
       uint16_t value = promptForHexNumber("Set a 16-bit hex value to fill SRAM with: 0x");
       for (int i = 0; i < repeats; i++) {
         // Log trial/repeat sequence number for easier human-readability of a dump file
-        Serial.print("Repeat ");
+        Serial.println();
+        Serial.print("=== Repeat ");
         Serial.print(i + 1);
         Serial.print(" of ");
-        Serial.println(repeats);
+        Serial.print(repeats);
+        Serial.println(" ===");
 
         // Print my "standard" trial marker line (but the delay is always the same)
         Serial.print("Beginning next trial with delay of ");
@@ -1395,8 +1397,13 @@ void loop() {
         powerCycleSRAM1(delay);
 
         // Dump SRAM values
-        dumpRangeOfSRAM_v2(0, count, 1, false);
+        printSectionMemoryDump_v2(0, count, 1);
       }
+
+      // Done
+      Serial.println();
+      Serial.println("Done with command #17");
+      beep();
     } break;
   default:
     {

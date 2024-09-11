@@ -1124,6 +1124,7 @@ void printChoices(void) {
   Serial.println(" 14) SRAM multiple cycles of Hamming Weight");
   Serial.println(" 15) Do #6 multiple times");
   Serial.println(" 16) Calculate Hamming distance between two chips");
+  Serial.println(" 17) Repeat a write/power-off/read cycle multiple times");
 }
 
 
@@ -1355,6 +1356,46 @@ void loop() {
       }
       else {
         Serial.println("Are they the same chip? YES");
+      }
+    } break;
+  case 17:
+    {
+      // Repeat a write/power-off/read cycle multiple times.
+      // Like a remanence experiment, but with constant power-off time.
+      int repeats = promptForDecimalNumber("Set the number of repeats: ");
+      if (repeats == 0 || repeats > 999) {
+        // Probably not right
+        Serial.print("Not accepting repeats = ");
+        Serial.println(repeats);
+        break;
+      }
+      int delay = promptForDecimalNumber("Set a power-off time between cycles (ms): ");
+      int count = promptForDecimalNumber("Use address range 0 up to:");
+      if (count == 0) {
+        Serial.println("(Got 0, replacing with NUM_WORDS)");
+        count = NUM_WORDS;
+      }
+      uint16_t value = promptForHexNumber("Set a 16-bit hex value to fill SRAM with: 0x");
+      for (int i = 0; i < repeats; i++) {
+        // Log trial/repeat sequence number for easier human-readability of a dump file
+        Serial.print("Repeat ");
+        Serial.print(i + 1);
+        Serial.print(" of ");
+        Serial.println(repeats);
+
+        // Print my "standard" trial marker line (but the delay is always the same)
+        Serial.print("Beginning next trial with delay of ");
+        Serial.print(delay);
+        Serial.println("ms");
+
+        // Write the value to SRAM
+        fillRangeOfSRAM(value, 0, count, 1, false);
+
+        // Power off and on again
+        powerCycleSRAM1(delay);
+
+        // Dump SRAM values
+        dumpRangeOfSRAM_v2(0, count, 1, false);
       }
     } break;
   default:

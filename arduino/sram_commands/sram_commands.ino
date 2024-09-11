@@ -24,7 +24,7 @@ constexpr unsigned int DataPinCount = 16;
 constexpr unsigned int dataPins[] = { 22, 23, 24, 25, 26, 27, 28, 29, 37, 38, 39, 40, 41, 42, 43, 44, }; // mappings for the PCB setup
 
 constexpr unsigned int unused_analog_pin = A0;
-uint16_t wordStorage[20000];
+uint16_t wordStorage[NUM_WORDS/8]; // This is the biggest that I can make it
 unsigned long wordStorageCount = 0;
 
 

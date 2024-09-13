@@ -1434,9 +1434,9 @@ void handleCommandNumber(int choice) {
   default:
     {
       // Received an unhandled choice number
-      Serial.print("Invalid command choice: ");
-      Serial.println(choice);
-      printChoices();
+      Serial.print("Invalid command choice '");
+      Serial.print(choice);
+      Serial.println("'");
     } break;
   }
 }
@@ -1474,6 +1474,6 @@ void loop() {
   printChoices();
   auto choice = promptForDecimalNumber("Enter choice number: ");
   Serial.println("---");
-  
+
   handleCommandNumber(choice);
 }

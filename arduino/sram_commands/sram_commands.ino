@@ -26,6 +26,7 @@ constexpr unsigned int dataPins[] = { 22, 23, 24, 25, 26, 27, 28, 29, 37, 38, 39
 constexpr unsigned int unused_analog_pin = A0;
 static uint16_t wordStorage[NUM_WORDS/8]; // This is the biggest that I can make it
 unsigned long wordStorageCount = 0;
+static bool chipOk = false;
 
 
 // Put SRAM chip control pins in the right mode (input or output)
@@ -894,12 +895,32 @@ bool checkWriteAndReadBackValue(uint32_t value, uint16_t base_address, uint16_t 
 
 
 // Test to make sure that the different address bits are properly distinguished in reading and writing.
-// Writes a value 'i' to the address '2^i' and makes sure that it reads back as 'i'
+// Writes the values of 0s, 1s, and 'i' to the address '2^i' and makes sure that it reads back the same.
 bool runAddressBitTest(void) {
+  // Write 0's
+  for (int i = 0; i < AddressPinCount; i++) {
+    writeWord(1 << i, 0);
+  }
+  for (int i = 0; i < AddressPinCount; i++) {
+    if (readWord(1 << i) != 0) {
+      return false;
+    }
+  }
+
+  // Write 1's
+  for (int i = 0; i < AddressPinCount; i++) {
+    writeWord(1 << i, 0xFFFF);
+  }
+  for (int i = 0; i < AddressPinCount; i++) {
+    if (readWord(1 << i) != 0xFFFF) {
+      return false;
+    }
+  }
+
+  // Write value of i
   for (int i = 0; i < AddressPinCount; i++) {
     writeWord(1 << i, i);
   }
-  delay(100);
   for (int i = 0; i < AddressPinCount; i++) {
     if (readWord(1 << i) != i) {
       return false;
@@ -1435,12 +1456,24 @@ void setup() {
 
   // Check SRAM chip socket connection
   Serial.print("Now checking if the SRAM chip is in the socket correctly...");
-  Serial.println(checkConnectedChip() ? "\nOK." : "\n\aSRAM chip is NOT connected!");
+  if (chipOk = checkConnectedChip()) {
+    Serial.println("\n\n>>>> OK <<<<\n");
+  }
+  else {
+    beep();
+    Serial.println("\n\n>>>> NOT ok <<<<\n");
+  }
 }
 
 
 void loop() {
+  if (!chipOk) {
+    return;
+  }
+
   printChoices();
   auto choice = promptForDecimalNumber("Enter choice number: ");
+  Serial.println("---");
+  
   handleCommandNumber(choice);
 }

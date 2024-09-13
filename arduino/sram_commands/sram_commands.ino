@@ -937,6 +937,7 @@ bool runAddressBitTest(void) {
 
 
 // Returns false if the chip is definitely not connected or not working right.
+// NOTE: this overwrites data in the SRAM, so don't run this as a casual check expecting to preserve the SRAM state!
 bool checkConnectedChip(void) {
   constexpr int kb = 1024;
 

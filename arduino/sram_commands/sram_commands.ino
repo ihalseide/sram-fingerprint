@@ -1059,6 +1059,10 @@ uint32_t rangeHammingWeightProgress(uint32_t baseAddress, uint32_t count, uint32
       lastUpdate = millis();
     }
   }
+
+  // End the line of progress dots
+  Serial.println();
+
   return hWeight;
 }
 
@@ -1154,9 +1158,9 @@ void handleCommandNumber(int choice) {
   case 1:
     {
       // dump memory
-      auto base = promptForHexNumber("Base address (hex): ");
-      auto count = promptForDecimalNumber("Count/length: (dec): ");
-      auto step = promptForDecimalNumber("Step/stride (dec): ");
+      auto base = promptForHexNumber("Base address = 0x");
+      auto count = promptForDecimalNumber("Count/length = ");
+      auto step = 1; //promptForDecimalNumber("Step/stride = ");
       if (base >= NUM_WORDS || count > NUM_WORDS || step < 1 || step > NUM_WORDS) {
         Serial.println("Invalid base, count, or step");
         return;
@@ -1166,10 +1170,10 @@ void handleCommandNumber(int choice) {
   case 2:
     {
       // fill memory
-      uint32_t val = promptForHexNumber("Enter (hex) value to fill memory with: ");
-      auto base = promptForHexNumber("Base address (hex): ");
-      auto count = promptForDecimalNumber("Count/length: (0 for full SRAM size)(dec): ");
-      auto step = promptForDecimalNumber("Step/stride (dec): ");
+      uint32_t val = promptForHexNumber("Value to fill SRAM with = 0x");
+      auto base = promptForHexNumber("Base/start address = 0x");
+      auto count = promptForDecimalNumber("Count/length (0 for full SRAM size) = ");
+      auto step = 1; //promptForDecimalNumber("Step/stride = ");
       if (base >= NUM_WORDS || count > NUM_WORDS || step < 1 || step > NUM_WORDS) {
         Serial.println("Invalid base, count, or step");
         return;
@@ -1181,8 +1185,8 @@ void handleCommandNumber(int choice) {
     } break;
   case 3:
     {
-      auto off_ms = promptForDecimalNumber("Enter time to power off the SRAM for (millis):");
-      auto off_us = promptForDecimalNumber("Enter time to power off the SRAM for (micros, in addition):");
+      auto off_ms = promptForDecimalNumber("Enter time to power off the SRAM for (milliseconds):");
+      auto off_us = promptForDecimalNumber("Enter time to power off the SRAM for (additional microseconds):");
       powerCycleSRAM2(off_ms, off_us);
     } break;
   case 4:
@@ -1214,9 +1218,9 @@ void handleCommandNumber(int choice) {
   case 8:
     {
       // Hamming weight for memory range
-      auto base = promptForHexNumber("Base address (hex): ");
-      auto count = promptForDecimalNumber("Count/length: (dec)(0 for whole SRAM): ");
-      auto step = promptForDecimalNumber("Step/stride (dec): ");
+      auto base = promptForHexNumber("Base/start address = 0x");
+      auto count = promptForDecimalNumber("Count/length = ");
+      auto step = 1; //promptForDecimalNumber("Step/stride = ");
       
       if (count == 0) {
         count = NUM_WORDS;
@@ -1233,9 +1237,9 @@ void handleCommandNumber(int choice) {
     } break;
   case 10:
     {
-      auto start_ms = promptForDecimalNumber("Starting power-off value (ms) ");
-      auto stop_ms = promptForDecimalNumber("Stopping power-off value (ms) ");
-      auto step_us = promptForDecimalNumber("Time step (us) ");
+      auto start_ms = promptForDecimalNumber("Starting power-off value (ms) = ");
+      auto stop_ms = promptForDecimalNumber("Stopping power-off value (ms) = ");
+      auto step_us = promptForDecimalNumber("Time step (us) = ");
       if (start_ms > stop_ms || step_us == 0 || stop_ms == 0) {
         Serial.println("Invalid start, stop, or step value");
         break;
@@ -1269,7 +1273,7 @@ void handleCommandNumber(int choice) {
       // Collect power-up Hamming weight multiple times
       auto off_us = promptForDecimalNumber("power-off time (us) = ");
       auto cycles = promptForDecimalNumber("number of cycles = ");
-      auto base = promptForHexNumber("base address (hex) = ");
+      auto base = promptForHexNumber("base address (hex) = 0x");
       auto length = promptForDecimalNumber("address count (0 for the full memory size) = ");
       if (length == 0) {
         length = NUM_WORDS;
@@ -1419,7 +1423,7 @@ void handleCommandNumber(int choice) {
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("Arduino connected.");
+  Serial.println("Hello from Arduino!");
 
   // Setup pins to SRAM chip
   setupControlPins();
@@ -1427,19 +1431,16 @@ void setup() {
 
   // Reset SRAM chip
   turnOffSRAM();
-  delay(1000);
   turnOnSRAM();
 
   // Check SRAM chip socket connection
   Serial.print("Now checking if the SRAM chip is in the socket correctly...");
   Serial.println(checkConnectedChip() ? "\nOK." : "\n\aSRAM chip is NOT connected!");
-
-  // Print out command choices for the first time
-  printChoices();
 }
 
 
 void loop() {
+  printChoices();
   auto choice = promptForDecimalNumber("Enter choice number: ");
   handleCommandNumber(choice);
 }

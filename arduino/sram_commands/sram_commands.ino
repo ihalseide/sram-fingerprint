@@ -12,8 +12,8 @@ constexpr unsigned int
  pin_nOE = 47,  // !output enable
  pin_nBHE = 46, // !byte high enable
  pin_nBLE = 45, // !byte low enable
- pin_nWE = 8; // !write enable
-constexpr unsigned int pin_nVccEnable = 53; // pin for the MOSFET controlling VCC to the SRAM chip
+ pin_nWE = 8, // !write enable
+ pin_nVccEnable = 53; // pin for the MOSFET controlling VCC to the SRAM chip
 
 // Arduino pin numbers for the A0-A17 pins on the Cypress SRAM chip (18 address bits)
 constexpr unsigned int AddressPinCount = 18;
@@ -24,7 +24,7 @@ constexpr unsigned int DataPinCount = 16;
 constexpr unsigned int dataPins[] = { 22, 23, 24, 25, 26, 27, 28, 29, 37, 38, 39, 40, 41, 42, 43, 44, }; // mappings for the PCB setup
 
 constexpr unsigned int unused_analog_pin = A0;
-uint16_t wordStorage[NUM_WORDS/8]; // This is the biggest that I can make it
+static uint16_t wordStorage[NUM_WORDS/8]; // This is the biggest that I can make it
 unsigned long wordStorageCount = 0;
 
 
@@ -1042,6 +1042,27 @@ uint32_t rangeHammingWeight(uint32_t baseAddress, uint32_t count, uint32_t step)
 }
 
 
+// Sum up the Hamming weight of a range of SRAM memory, with progress output.
+uint32_t rangeHammingWeightProgress(uint32_t baseAddress, uint32_t count, uint32_t step) {
+  if (step == 0) {
+    // Prevent entering an infinite loop
+    return 0;
+  }
+  long lastUpdate = millis();
+  uint32_t hWeight = 0;
+  for (uint32_t i = 0; i < count; i += step) {
+    hWeight += intHammingWeight(readWord(baseAddress + i));
+
+    // Print out progress updates
+    if (millis() - lastUpdate > 500) {
+      Serial.print('.');
+      lastUpdate = millis();
+    }
+  }
+  return hWeight;
+}
+
+
 // Time values are in microseconds
 void doWrappedPowerCycle(uint32_t holdTime, uint32_t offTime, uint32_t settleTime) {
   Serial.print("Hold time = ");
@@ -1196,11 +1217,14 @@ void handleCommandNumber(int choice) {
       auto base = promptForHexNumber("Base address (hex): ");
       auto count = promptForDecimalNumber("Count/length: (dec)(0 for whole SRAM): ");
       auto step = promptForDecimalNumber("Step/stride (dec): ");
+      
       if (count == 0) {
         count = NUM_WORDS;
       }
-      auto result = rangeHammingWeight(base, count, step);
-      Serial.print("Hamming weight: ");
+
+      auto result = rangeHammingWeightProgress(base, count, step);
+
+      Serial.print("Hamming weight = ");
       Serial.println(result);
     } break;
   case 9:
@@ -1367,7 +1391,7 @@ void handleCommandNumber(int choice) {
         Serial.print(delay);
         Serial.println("ms");
 
-        // Write the value to SRAM
+        // Write the value to all SRAM addresses
         fillRangeOfSRAM(value, 0, count, 1, false);
 
         // Power off and on again

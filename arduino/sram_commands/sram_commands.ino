@@ -1112,23 +1112,23 @@ void beep(void) {
 
 void printChoices(void) {
   Serial.println("===== Available command choices =====");
-  Serial.println("  1) SRAM dump memory range (read)");
-  Serial.println("  2) SRAM fill memory range (write)");
-  Serial.println("  3) SRAM power cycle (restart)");
-  Serial.println("  4) upload image data to cache");
-  Serial.println("  5) write cached image data to SRAM");
-  Serial.println("  6) SRAM remanence experiment, increasing steps");
-  Serial.println("  7) SRAM do multiple power-up dumps");
-  Serial.println("  8) SRAM range Hamming weight (read)");
-  Serial.println("  9) SRAM remanence experiment, custom");
-  Serial.println(" 10) SRAM remanence experiment, cumulative");
+  Serial.println("  1) dump memory range");
+  Serial.println("  2) fill memory range a given value");
+  Serial.println("  3) power cycle SRAM");
+  Serial.println("  4) upload data to Arduino image cache");
+  Serial.println("  5) write Arduino image cache to SRAM");
+  Serial.println("  6) run remanence experiment 'increasing steps'");
+  Serial.println("  7) do multiple power-up memory dumps");
+  Serial.println("  8) sum up the Hamming weight on a memory range");
+  Serial.println("  9) run remanence experiment 'custom'");
+  Serial.println(" 10) run remanence experiment 'cumulative'");
   Serial.println(" 11) [currently unused]");
   Serial.println(" 12) [currently unused]");
-  Serial.println(" 13) SRAM power-off");
-  Serial.println(" 14) SRAM multiple cycles of Hamming Weight");
-  Serial.println(" 15) Do #6 multiple times");
-  Serial.println(" 16) Calculate Hamming distance between two chips");
-  Serial.println(" 17) Repeat a write/power-off/read cycle multiple times");
+  Serial.println(" 13) manual power cycle SRAM");
+  Serial.println(" 14) do multiple sums of Hamming Weight");
+  Serial.println(" 15) do experiment from command #6 multiple times");
+  Serial.println(" 16) calculate Hamming distance between two SRAM chips");
+  Serial.println(" 17) do a write/power-off/read cycle multiple times");
 }
 
 
@@ -1236,10 +1236,19 @@ void handleCommandNumber(int choice) {
     } break;
   case 13:
     {
-      // Power-off SRAM for however long
+      // Power-off SRAM manually for however long
       turnOffSRAM();
-      promptForDecimalNumber("SRAM is now off, enter any digits to turn it back on >");
+      auto startTime = micros();
+      Serial.println("SRAM is now off, enter anything to turn it back on and continue...");
+      
+      serialPromptLine(nullptr, 0);
+
       turnOnSRAM();
+
+      auto duration = micros() - startTime;
+      Serial.print("Off time = ");
+      Serial.print(duration);
+      Serial.println(" microseconds");
     } break;
   case 14:
     {

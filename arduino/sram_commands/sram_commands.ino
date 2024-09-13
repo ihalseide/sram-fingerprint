@@ -1049,7 +1049,7 @@ void doMultipleDumps(void) {
 }
 
 
-// Get the hamming weight for an integer
+// Get the Hamming Weight for an integer (the number of bits set to 1 in the unsigned binary representation)
 short int intHammingWeight(unsigned long x) {
     short int hWeight = 0;
     while (x) {
@@ -1060,6 +1060,7 @@ short int intHammingWeight(unsigned long x) {
 }
 
 
+// Find the Hamming distance between two ints
 short int intHammingDistance(unsigned long x, unsigned long y) {
   return intHammingWeight(x ^ y);
 }
@@ -1104,65 +1105,6 @@ uint32_t rangeHammingWeightProgress(uint32_t baseAddress, uint32_t count, uint32
 }
 
 
-// Time values are in microseconds
-void doWrappedPowerCycle(uint32_t holdTime, uint32_t offTime, uint32_t settleTime) {
-  Serial.print("Hold time = ");
-  Serial.print(holdTime);
-  Serial.println("us");
-
-  delayMicroseconds(holdTime);
-  powerCycleSRAM1((double) offTime / 1000.0);
-  delayMicroseconds(settleTime);
-
-  Serial.print("Settle time = ");
-  Serial.print(settleTime);
-  Serial.println("us");
-}
-
-
-// Time values are in microseconds
-void doWritePowerDump(uint32_t holdTime, uint32_t offTime, uint32_t settleTime) {
-  writeReceivedImageBasic();
-  doWrappedPowerCycle(holdTime, offTime, settleTime);
-  printSectionMemoryDump(0, wordStorageCount, 1);
-}
-
-
-void runHoldTimeTest(uint32_t offTime, uint32_t settleTime) {
-  const uint32_t hold[] = {
-    0,
-    1, 2, 3, 4, 5, 6, 7, 8, 9,
-    10, 20, 30, 40, 50, 60 , 70, 80, 90,
-    100, 200, 300, 400, 500, 600 , 700, 800, 900,
-  };
-  constexpr int count = sizeof(hold)/sizeof(hold[0]);
-  if (randomSequenceBegin(count)) {
-    int i;
-    while ((i = randomSequenceNext()) >= 0) {
-      doWritePowerDump(hold[i], offTime, settleTime);
-    }
-  }
-}
-
-
-void runSettleTimeTest(uint32_t holdTime, uint32_t offTime) {
-  const uint32_t settle[] = {
-    100,100,100,100,100,100,100,100,100,100
-    // 1, 2, 3, 4, 5, 6, 7, 8, 9,
-    // 10, 20, 30, 40, 50, 60 , 70, 80, 90,
-    // 100, 200, 300, 400, 500, 600 , 700, 800, 900,
-    // 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000,
-  };
-  constexpr int count = sizeof(settle)/sizeof(settle[0]);
-  if (randomSequenceBegin(count)) {
-    int i;
-    while ((i = randomSequenceNext()) >= 0) {
-      doWritePowerDump(holdTime, offTime, settle[i]);
-    }
-  }
-}
-
-
 void beep(void) {
   Serial.print('\a');
 }
@@ -1180,8 +1122,8 @@ void printChoices(void) {
   Serial.println("  8) SRAM range Hamming weight (read)");
   Serial.println("  9) SRAM remanence experiment, custom");
   Serial.println(" 10) SRAM remanence experiment, cumulative");
-  Serial.println(" 11) SRAM test effect of pre-delay");
-  Serial.println(" 12) SRAM test effect of post-delay");
+  Serial.println(" 11) [currently unused]");
+  Serial.println(" 12) [currently unused]");
   Serial.println(" 13) SRAM power-off");
   Serial.println(" 14) SRAM multiple cycles of Hamming Weight");
   Serial.println(" 15) Do #6 multiple times");
@@ -1286,17 +1228,11 @@ void handleCommandNumber(int choice) {
     } break;
   case 11:
     {
-      auto offTime = promptForDecimalNumber("Constant off time (us): ");
-      auto settleTime = 1000 * promptForDecimalNumber("Constant settle time (ms): ");
-      runHoldTimeTest(offTime, settleTime);
-      beep();
+      Serial.println("Command #11 is currently unused");
     } break;
   case 12:
     {
-      auto holdTime = 1000 * promptForDecimalNumber("Constant hold time (ms): ");
-      auto offTime = promptForDecimalNumber("Constant off time (us): ");
-      runSettleTimeTest(holdTime, offTime);
-      beep();
+      Serial.println("Command #12 is currently unused");
     } break;
   case 13:
     {

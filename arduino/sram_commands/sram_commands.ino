@@ -903,6 +903,8 @@ bool runAddressBitTest(void) {
   }
   for (int i = 0; i < AddressPinCount; i++) {
     if (readWord(1 << i) != 0) {
+      Serial.print("Address pin #");
+      Serial.println(i);
       return false;
     }
   }
@@ -913,6 +915,8 @@ bool runAddressBitTest(void) {
   }
   for (int i = 0; i < AddressPinCount; i++) {
     if (readWord(1 << i) != 0xFFFF) {
+      Serial.print("Address pin #");
+      Serial.println(i);
       return false;
     }
   }
@@ -923,6 +927,8 @@ bool runAddressBitTest(void) {
   }
   for (int i = 0; i < AddressPinCount; i++) {
     if (readWord(1 << i) != i) {
+      Serial.print("Address pin #");
+      Serial.println(i);
       return false;
     }
   }
@@ -934,11 +940,14 @@ bool runAddressBitTest(void) {
 bool checkConnectedChip(void) {
   constexpr int kb = 1024;
 
-  if (!runAddressBitTest()) { return false; }
+  if (!runAddressBitTest()) {
+    Serial.println("runAddressBitTest() failed");
+    return false;
+  }
 
-  constexpr int count1 = 1;
+  constexpr int count1 = 5; // the first few kb
   for (int i = 0; i < count1; ++i) {
-    constexpr int extent1 = 2;
+    constexpr int extent1 = 2; // overlap (in kb)
     // Check some overlapping regions with different values
     if (!checkWriteAndReadBackValue(0x0000, i * kb, extent1 * kb)) { return false; } // check an all-0s word
     if (!checkWriteAndReadBackValue(0xFFFF, i * kb, extent1 * kb)) { return false; } // check an all-1s word
@@ -948,7 +957,10 @@ bool checkConnectedChip(void) {
     Serial.print('.');
   }
 
-  if (!runAddressBitTest()) { return false; }
+  if (!runAddressBitTest()) {
+    Serial.println("runAddressBitTest() failed");
+    return false;
+  }
 
   // Write an increasing sequence and check that it reads back.
   constexpr int count2 = 2;
@@ -963,7 +975,10 @@ bool checkConnectedChip(void) {
   }
   Serial.print('.');
 
-  if (!runAddressBitTest()) { return false; }
+  if (!runAddressBitTest()) {
+    Serial.println("runAddressBitTest() failed");
+    return false;
+  }
 
   return true;
 }

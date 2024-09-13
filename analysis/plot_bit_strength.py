@@ -17,6 +17,7 @@ def main():
     votes = np.load(filename)
     max_votes_num = np.max(votes)
 
+    print(f"Number of bits = {votes.shape[0]}")
     print("Max votes value = ", max_votes_num)
 
     ax = plt.subplot()

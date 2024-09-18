@@ -885,11 +885,21 @@ bool checkWriteAndReadBackValue(uint32_t value, uint16_t base_address, uint16_t 
   for (auto i = 0; i < count; ++i) {
     writeWord(base_address + i, value);
   }
+
   for (auto i = 0; i < count; ++i) {
     if (readWord(base_address + i) != value) {
+      Serial.print("checkWriteAndReadBackValue(0x");
+      Serial.print(value, 16);
+      Serial.print(", 0x");
+      Serial.print(base_address, 16);
+      Serial.print(", 0x");
+      Serial.print(count, 16);
+      Serial.print(") failed at address 0x");
+      Serial.println(i, 16);
       return false;
     }
   }
+
   return true;
 }
 
@@ -946,15 +956,28 @@ bool checkConnectedChip(void) {
     return false;
   }
 
+  // Check some overlapping regions with different values
   constexpr int count1 = 5; // the first few kb
+  constexpr int extent1 = 2; // overlap (in kb)
   for (int i = 0; i < count1; ++i) {
-    constexpr int extent1 = 2; // overlap (in kb)
-    // Check some overlapping regions with different values
-    if (!checkWriteAndReadBackValue(0x0000, i * kb, extent1 * kb)) { return false; } // check an all-0s word
-    if (!checkWriteAndReadBackValue(0xFFFF, i * kb, extent1 * kb)) { return false; } // check an all-1s word
+    if (!checkWriteAndReadBackValue(0x0000, i * kb, extent1 * kb)) { // check an all-0s word
+      return false;
+    } 
+
+    if (!checkWriteAndReadBackValue(0xFFFF, i * kb, extent1 * kb)) { // check an all-0s word
+      return false;
+    }
+
     Serial.print('.');
-    if (!checkWriteAndReadBackValue(0xAAAA, i * kb, extent1 * kb)) { return false; } // check word with alternating bits
-    if (!checkWriteAndReadBackValue(0x5555, i * kb, extent1 * kb)) { return false; } // check word with alternating bits
+
+    if (!checkWriteAndReadBackValue(0xAAAA, i * kb, extent1 * kb)) { // check an all-0s word
+      return false;
+    }
+
+    if (!checkWriteAndReadBackValue(0x5555, i * kb, extent1 * kb)) { // check an all-0s word
+      return false;
+    }
+
     Serial.print('.');
   }
 
@@ -971,6 +994,7 @@ bool checkConnectedChip(void) {
   Serial.print('.');
   for (int i = 0; i < count2 * kb; ++i) {
     if (readWord(i) != i) {
+      Serial.println("Increasing sequence failed");
       return false;
     }
   }
@@ -1378,7 +1402,9 @@ void handleCommandNumber(int choice) {
         Serial.println("ms");
 
         // Write the value to all SRAM addresses
-        fillRangeOfSRAM(value, 0, count, 1, false);
+        Serial.println("Filling SRAM with 0x");
+        printWordHex4(value);
+        fillRangeOfSRAM(value, 0, count, 1, true);
 
         // Power off and on again
         powerCycleSRAM1(delay);
@@ -1428,13 +1454,13 @@ void setup() {
 
 
 void loop() {
-  if (!chipOk) {
-    return;
-  }
-
   printChoices();
+
+  if (!chipOk) {
+    Serial.println("NOTE: chip was NOT ok at the end of setup.");
+  }
+  constexpr int x = 0x35;
   auto choice = promptForDecimalNumber("Enter choice number: ");
   Serial.println("---");
-
   handleCommandNumber(choice);
 }

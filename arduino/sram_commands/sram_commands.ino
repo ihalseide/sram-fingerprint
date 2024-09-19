@@ -1402,7 +1402,7 @@ void handleCommandNumber(int choice) {
         Serial.println("ms");
 
         // Write the value to all SRAM addresses
-        Serial.println("Filling SRAM with 0x");
+        Serial.print("Filling SRAM with 0x");
         printWordHex4(value);
         fillRangeOfSRAM(value, 0, count, 1, true);
 

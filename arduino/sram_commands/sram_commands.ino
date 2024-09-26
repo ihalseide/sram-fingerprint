@@ -254,7 +254,7 @@ long parseInt(const char *chars, size_t length, unsigned int base) {
 // Set/write all of the addresses in a given region of SRAM to store the given value.
 void fillRangeOfSRAM(uint16_t value, uint32_t base_address, uint32_t count, unsigned int step, bool showProgress) {
   auto lastTime = millis();
-  constexpr long progressInterval = 555;
+  constexpr long progressInterval = 1000; // milliseconds
 
   if (!step) {
     // Prevent infinite loop that would happen if step == 0

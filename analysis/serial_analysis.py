@@ -114,8 +114,10 @@ def create_gold_puf_v2(num_captures: int, input_file_name: str, output_file_name
                 if bit_votes_for_one[bit_i] > (num_captures // 2):
                     word_value |= (1 << word_bit_i)
             # Save hex representation of the majority word to the output file
-            ending = '' if word_i == (num_words - 1) else '\n' # no newline for the last line
+            ending = '' if word_i == (num_words - 1) else ' ' # no newline for the last line
             print(f"{word_value:04X}", file=file_out, end=ending)
+            if (word_i + 1) % 16 == 0:
+                print(file=file_out)
 
     print("done")
 
@@ -593,13 +595,18 @@ def file_hamming_weight(file_in, num_words: int) -> int:
     return sum(map(hamming_weight, file_read_hex4_dump_as_words(file_in, num_words)))
 
 
-def bit_diff_files(file_name_a: str, file_name_b: str, num_words: int=NUM_WORDS) -> int:
-    print(f"Comparing bits from data files '{file_name_a}' and '{file_name_b}'...")
+def bit_diff_files(file_name_a: str, file_name_b: str, num_words: int=NUM_WORDS, do_print=True) -> int:
+    if do_print:
+        print(f"Comparing bits from data files '{file_name_a}' and '{file_name_b}'...")
+
     with open(file_name_a, "rb") as file_a:
         with open(file_name_b, "rb") as file_b:
             a_hw, b_hw, diff = bit_diff_within_files(file_a, file_b, num_words)
+
+    if do_print:
         report_file_bit_diff(file_name_a, file_name_b, a_hw, b_hw, diff, num_words*BITS_PER_WORD)
-        return diff
+
+    return diff
 
 
 def bit_diff_files_full_ratio(file_a: str, file_b: str, num_words: int=NUM_WORDS) -> tuple[float, float, float]:

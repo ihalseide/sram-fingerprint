@@ -34,7 +34,11 @@ def combine_captures_as_votes(num_captures: int, input_file_name: str, num_words
 
             # Read each data word from the data file
             for word_i in range(num_words):
-                word = file_read_next_hex4(file_in)
+                try:
+                    word = file_read_next_hex4(file_in)
+                except ValueError as e:
+                    print(f"ERROR at word index = {word_i}")
+                    raise e
                 # Log the "bit vote" for each bit of the word
                 for word_bit_i in range(BITS_PER_WORD):
                     bit_i = (word_i * BITS_PER_WORD) + word_bit_i

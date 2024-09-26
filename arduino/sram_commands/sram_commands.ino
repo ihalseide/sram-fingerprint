@@ -12,8 +12,8 @@ constexpr unsigned int
  pin_nOE = 47,  // !output enable
  pin_nBHE = 46, // !byte high enable
  pin_nBLE = 45, // !byte low enable
- pin_nWE = 8; // !write enable
-constexpr unsigned int pin_nVccEnable = 53; // pin for the MOSFET controlling VCC to the SRAM chip
+ pin_nWE = 8, // !write enable
+ pin_nVccEnable = 53; // pin for the MOSFET controlling VCC to the SRAM chip
 
 // Arduino pin numbers for the A0-A17 pins on the Cypress SRAM chip (18 address bits)
 constexpr unsigned int AddressPinCount = 18;
@@ -24,8 +24,9 @@ constexpr unsigned int DataPinCount = 16;
 constexpr unsigned int dataPins[] = { 22, 23, 24, 25, 26, 27, 28, 29, 37, 38, 39, 40, 41, 42, 43, 44, }; // mappings for the PCB setup
 
 constexpr unsigned int unused_analog_pin = A0;
-uint16_t wordStorage[20000];
+static uint16_t wordStorage[NUM_WORDS/8]; // This is the biggest that I can make it
 unsigned long wordStorageCount = 0;
+static bool chipOk = false;
 
 
 // Put SRAM chip control pins in the right mode (input or output)
@@ -253,7 +254,7 @@ long parseInt(const char *chars, size_t length, unsigned int base) {
 // Set/write all of the addresses in a given region of SRAM to store the given value.
 void fillRangeOfSRAM(uint16_t value, uint32_t base_address, uint32_t count, unsigned int step, bool showProgress) {
   auto lastTime = millis();
-  constexpr long progressInterval = 555;
+  constexpr long progressInterval = 1000; // milliseconds
 
   if (!step) {
     // Prevent infinite loop that would happen if step == 0
@@ -884,24 +885,60 @@ bool checkWriteAndReadBackValue(uint32_t value, uint16_t base_address, uint16_t 
   for (auto i = 0; i < count; ++i) {
     writeWord(base_address + i, value);
   }
+
   for (auto i = 0; i < count; ++i) {
     if (readWord(base_address + i) != value) {
+      Serial.print("checkWriteAndReadBackValue(0x");
+      Serial.print(value, 16);
+      Serial.print(", 0x");
+      Serial.print(base_address, 16);
+      Serial.print(", 0x");
+      Serial.print(count, 16);
+      Serial.print(") failed at address 0x");
+      Serial.println(i, 16);
       return false;
     }
   }
+
   return true;
 }
 
 
 // Test to make sure that the different address bits are properly distinguished in reading and writing.
-// Writes a value 'i' to the address '2^i' and makes sure that it reads back as 'i'
+// Writes the values of 0s, 1s, and 'i' to the address '2^i' and makes sure that it reads back the same.
 bool runAddressBitTest(void) {
+  // Write 0's
+  for (int i = 0; i < AddressPinCount; i++) {
+    writeWord(1 << i, 0);
+  }
+  for (int i = 0; i < AddressPinCount; i++) {
+    if (readWord(1 << i) != 0) {
+      Serial.print("Address pin #");
+      Serial.println(i);
+      return false;
+    }
+  }
+
+  // Write 1's
+  for (int i = 0; i < AddressPinCount; i++) {
+    writeWord(1 << i, 0xFFFF);
+  }
+  for (int i = 0; i < AddressPinCount; i++) {
+    if (readWord(1 << i) != 0xFFFF) {
+      Serial.print("Address pin #");
+      Serial.println(i);
+      return false;
+    }
+  }
+
+  // Write value of i
   for (int i = 0; i < AddressPinCount; i++) {
     writeWord(1 << i, i);
   }
-  delay(100);
   for (int i = 0; i < AddressPinCount; i++) {
     if (readWord(1 << i) != i) {
+      Serial.print("Address pin #");
+      Serial.println(i);
       return false;
     }
   }
@@ -910,24 +947,44 @@ bool runAddressBitTest(void) {
 
 
 // Returns false if the chip is definitely not connected or not working right.
+// NOTE: this overwrites data in the SRAM, so don't run this as a casual check expecting to preserve the SRAM state!
 bool checkConnectedChip(void) {
   constexpr int kb = 1024;
 
-  if (!runAddressBitTest()) { return false; }
+  if (!runAddressBitTest()) {
+    Serial.println("runAddressBitTest() failed");
+    return false;
+  }
 
-  constexpr int count1 = 1;
+  // Check some overlapping regions with different values
+  constexpr int count1 = 5; // the first few kb
+  constexpr int extent1 = 2; // overlap (in kb)
   for (int i = 0; i < count1; ++i) {
-    constexpr int extent1 = 2;
-    // Check some overlapping regions with different values
-    if (!checkWriteAndReadBackValue(0x0000, i * kb, extent1 * kb)) { return false; } // check an all-0s word
-    if (!checkWriteAndReadBackValue(0xFFFF, i * kb, extent1 * kb)) { return false; } // check an all-1s word
+    if (!checkWriteAndReadBackValue(0x0000, i * kb, extent1 * kb)) { // check an all-0s word
+      return false;
+    } 
+
+    if (!checkWriteAndReadBackValue(0xFFFF, i * kb, extent1 * kb)) { // check an all-0s word
+      return false;
+    }
+
     Serial.print('.');
-    if (!checkWriteAndReadBackValue(0xAAAA, i * kb, extent1 * kb)) { return false; } // check word with alternating bits
-    if (!checkWriteAndReadBackValue(0x5555, i * kb, extent1 * kb)) { return false; } // check word with alternating bits
+
+    if (!checkWriteAndReadBackValue(0xAAAA, i * kb, extent1 * kb)) { // check an all-0s word
+      return false;
+    }
+
+    if (!checkWriteAndReadBackValue(0x5555, i * kb, extent1 * kb)) { // check an all-0s word
+      return false;
+    }
+
     Serial.print('.');
   }
 
-  if (!runAddressBitTest()) { return false; }
+  if (!runAddressBitTest()) {
+    Serial.println("runAddressBitTest() failed");
+    return false;
+  }
 
   // Write an increasing sequence and check that it reads back.
   constexpr int count2 = 2;
@@ -937,12 +994,16 @@ bool checkConnectedChip(void) {
   Serial.print('.');
   for (int i = 0; i < count2 * kb; ++i) {
     if (readWord(i) != i) {
+      Serial.println("Increasing sequence failed");
       return false;
     }
   }
   Serial.print('.');
 
-  if (!runAddressBitTest()) { return false; }
+  if (!runAddressBitTest()) {
+    Serial.println("runAddressBitTest() failed");
+    return false;
+  }
 
   return true;
 }
@@ -1012,7 +1073,7 @@ void doMultipleDumps(void) {
 }
 
 
-// Get the hamming weight for an integer
+// Get the Hamming Weight for an integer (the number of bits set to 1 in the unsigned binary representation)
 short int intHammingWeight(unsigned long x) {
     short int hWeight = 0;
     while (x) {
@@ -1023,6 +1084,7 @@ short int intHammingWeight(unsigned long x) {
 }
 
 
+// Find the Hamming distance between two ints
 short int intHammingDistance(unsigned long x, unsigned long y) {
   return intHammingWeight(x ^ y);
 }
@@ -1042,62 +1104,28 @@ uint32_t rangeHammingWeight(uint32_t baseAddress, uint32_t count, uint32_t step)
 }
 
 
-// Time values are in microseconds
-void doWrappedPowerCycle(uint32_t holdTime, uint32_t offTime, uint32_t settleTime) {
-  Serial.print("Hold time = ");
-  Serial.print(holdTime);
-  Serial.println("us");
+// Sum up the Hamming weight of a range of SRAM memory, with progress output.
+uint32_t rangeHammingWeightProgress(uint32_t baseAddress, uint32_t count, uint32_t step) {
+  if (step == 0) {
+    // Prevent entering an infinite loop
+    return 0;
+  }
+  long lastUpdate = millis();
+  uint32_t hWeight = 0;
+  for (uint32_t i = 0; i < count; i += step) {
+    hWeight += intHammingWeight(readWord(baseAddress + i));
 
-  delayMicroseconds(holdTime);
-  powerCycleSRAM1((double) offTime / 1000.0);
-  delayMicroseconds(settleTime);
-
-  Serial.print("Settle time = ");
-  Serial.print(settleTime);
-  Serial.println("us");
-}
-
-
-// Time values are in microseconds
-void doWritePowerDump(uint32_t holdTime, uint32_t offTime, uint32_t settleTime) {
-  writeReceivedImageBasic();
-  doWrappedPowerCycle(holdTime, offTime, settleTime);
-  printSectionMemoryDump(0, wordStorageCount, 1);
-}
-
-
-void runHoldTimeTest(uint32_t offTime, uint32_t settleTime) {
-  const uint32_t hold[] = {
-    0,
-    1, 2, 3, 4, 5, 6, 7, 8, 9,
-    10, 20, 30, 40, 50, 60 , 70, 80, 90,
-    100, 200, 300, 400, 500, 600 , 700, 800, 900,
-  };
-  constexpr int count = sizeof(hold)/sizeof(hold[0]);
-  if (randomSequenceBegin(count)) {
-    int i;
-    while ((i = randomSequenceNext()) >= 0) {
-      doWritePowerDump(hold[i], offTime, settleTime);
+    // Print out progress updates
+    if (millis() - lastUpdate > 500) {
+      Serial.print('.');
+      lastUpdate = millis();
     }
   }
-}
 
+  // End the line of progress dots
+  Serial.println();
 
-void runSettleTimeTest(uint32_t holdTime, uint32_t offTime) {
-  const uint32_t settle[] = {
-    100,100,100,100,100,100,100,100,100,100
-    // 1, 2, 3, 4, 5, 6, 7, 8, 9,
-    // 10, 20, 30, 40, 50, 60 , 70, 80, 90,
-    // 100, 200, 300, 400, 500, 600 , 700, 800, 900,
-    // 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000,
-  };
-  constexpr int count = sizeof(settle)/sizeof(settle[0]);
-  if (randomSequenceBegin(count)) {
-    int i;
-    while ((i = randomSequenceNext()) >= 0) {
-      doWritePowerDump(holdTime, offTime, settle[i]);
-    }
-  }
+  return hWeight;
 }
 
 
@@ -1108,56 +1136,34 @@ void beep(void) {
 
 void printChoices(void) {
   Serial.println("===== Available command choices =====");
-  Serial.println("  1) SRAM dump memory range (read)");
-  Serial.println("  2) SRAM fill memory range (write)");
-  Serial.println("  3) SRAM power cycle (restart)");
-  Serial.println("  4) upload image data to cache");
-  Serial.println("  5) write cached image data to SRAM");
-  Serial.println("  6) SRAM remanence experiment, increasing steps");
-  Serial.println("  7) SRAM do multiple power-up dumps");
-  Serial.println("  8) SRAM range Hamming weight (read)");
-  Serial.println("  9) SRAM remanence experiment, custom");
-  Serial.println(" 10) SRAM remanence experiment, cumulative");
-  Serial.println(" 11) SRAM test effect of pre-delay");
-  Serial.println(" 12) SRAM test effect of post-delay");
-  Serial.println(" 13) SRAM power-off");
-  Serial.println(" 14) SRAM multiple cycles of Hamming Weight");
-  Serial.println(" 15) Do #6 multiple times");
-  Serial.println(" 16) Calculate Hamming distance between two chips");
+  Serial.println("  1) dump memory range");
+  Serial.println("  2) fill memory range a given value");
+  Serial.println("  3) power cycle SRAM");
+  Serial.println("  4) upload data to Arduino image cache");
+  Serial.println("  5) write Arduino image cache to SRAM");
+  Serial.println("  6) run remanence experiment 'increasing steps'");
+  Serial.println("  7) do multiple power-up memory dumps");
+  Serial.println("  8) sum up the Hamming weight on a memory range");
+  Serial.println("  9) run remanence experiment 'custom'");
+  Serial.println(" 10) run remanence experiment 'cumulative'");
+  Serial.println(" 11) [currently unused]");
+  Serial.println(" 12) [currently unused]");
+  Serial.println(" 13) manual power cycle SRAM");
+  Serial.println(" 14) do multiple sums of Hamming Weight");
+  Serial.println(" 15) do experiment from command #6 multiple times");
+  Serial.println(" 16) calculate Hamming distance between two SRAM chips");
+  Serial.println(" 17) do a write/power-off/read cycle multiple times");
 }
 
 
-void setup() {
-  Serial.begin(115200);
-  Serial.println("Arduino connected.");
-
-  // Setup pins to SRAM chip
-  setupControlPins();
-  setupAddressPins();
-
-  // Reset SRAM chip
-  turnOffSRAM();
-  delay(1000);
-  turnOnSRAM();
-
-  // Check SRAM chip socket connection
-  Serial.print("Now checking if the SRAM chip is in the socket correctly...");
-  Serial.println(checkConnectedChip() ? "\nOK." : "\n\aSRAM chip is NOT connected!");
-
-  // Print out command choices for the first time
-  printChoices();
-}
-
-
-void loop() {
-  auto choice = promptForDecimalNumber("Enter choice number: ");
+void handleCommandNumber(int choice) {
   switch (choice) {
   case 1:
     {
       // dump memory
-      auto base = promptForHexNumber("Base address (hex): ");
-      auto count = promptForDecimalNumber("Count/length: (dec): ");
-      auto step = promptForDecimalNumber("Step/stride (dec): ");
+      auto base = promptForHexNumber("Base address = 0x");
+      auto count = promptForDecimalNumber("Count/length = ");
+      auto step = 1; //promptForDecimalNumber("Step/stride = ");
       if (base >= NUM_WORDS || count > NUM_WORDS || step < 1 || step > NUM_WORDS) {
         Serial.println("Invalid base, count, or step");
         return;
@@ -1167,10 +1173,10 @@ void loop() {
   case 2:
     {
       // fill memory
-      uint32_t val = promptForHexNumber("Enter (hex) value to fill memory with: ");
-      auto base = promptForHexNumber("Base address (hex): ");
-      auto count = promptForDecimalNumber("Count/length: (0 for full SRAM size)(dec): ");
-      auto step = promptForDecimalNumber("Step/stride (dec): ");
+      uint32_t val = promptForHexNumber("Value to fill SRAM with = 0x");
+      auto base = promptForHexNumber("Base/start address = 0x");
+      auto count = promptForDecimalNumber("Count/length (0 for full SRAM size) = ");
+      auto step = 1; //promptForDecimalNumber("Step/stride = ");
       if (base >= NUM_WORDS || count > NUM_WORDS || step < 1 || step > NUM_WORDS) {
         Serial.println("Invalid base, count, or step");
         return;
@@ -1182,8 +1188,8 @@ void loop() {
     } break;
   case 3:
     {
-      auto off_ms = promptForDecimalNumber("Enter time to power off the SRAM for (millis):");
-      auto off_us = promptForDecimalNumber("Enter time to power off the SRAM for (micros, in addition):");
+      auto off_ms = promptForDecimalNumber("Enter time to power off the SRAM for (milliseconds):");
+      auto off_us = promptForDecimalNumber("Enter time to power off the SRAM for (additional microseconds):");
       powerCycleSRAM2(off_ms, off_us);
     } break;
   case 4:
@@ -1215,14 +1221,17 @@ void loop() {
   case 8:
     {
       // Hamming weight for memory range
-      auto base = promptForHexNumber("Base address (hex): ");
-      auto count = promptForDecimalNumber("Count/length: (dec)(0 for whole SRAM): ");
-      auto step = promptForDecimalNumber("Step/stride (dec): ");
+      auto base = promptForHexNumber("Base/start address = 0x");
+      auto count = promptForDecimalNumber("Count/length = ");
+      auto step = 1; //promptForDecimalNumber("Step/stride = ");
+      
       if (count == 0) {
         count = NUM_WORDS;
       }
-      auto result = rangeHammingWeight(base, count, step);
-      Serial.print("Hamming weight: ");
+
+      auto result = rangeHammingWeightProgress(base, count, step);
+
+      Serial.print("Hamming weight = ");
       Serial.println(result);
     } break;
   case 9:
@@ -1231,9 +1240,9 @@ void loop() {
     } break;
   case 10:
     {
-      auto start_ms = promptForDecimalNumber("Starting power-off value (ms) ");
-      auto stop_ms = promptForDecimalNumber("Stopping power-off value (ms) ");
-      auto step_us = promptForDecimalNumber("Time step (us) ");
+      auto start_ms = promptForDecimalNumber("Starting power-off value (ms) = ");
+      auto stop_ms = promptForDecimalNumber("Stopping power-off value (ms) = ");
+      auto step_us = promptForDecimalNumber("Time step (us) = ");
       if (start_ms > stop_ms || step_us == 0 || stop_ms == 0) {
         Serial.println("Invalid start, stop, or step value");
         break;
@@ -1243,31 +1252,34 @@ void loop() {
     } break;
   case 11:
     {
-      auto offTime = promptForDecimalNumber("Constant off time (us): ");
-      auto settleTime = 1000 * promptForDecimalNumber("Constant settle time (ms): ");
-      runHoldTimeTest(offTime, settleTime);
-      beep();
+      Serial.println("Command #11 is currently unused");
     } break;
   case 12:
     {
-      auto holdTime = 1000 * promptForDecimalNumber("Constant hold time (ms): ");
-      auto offTime = promptForDecimalNumber("Constant off time (us): ");
-      runSettleTimeTest(holdTime, offTime);
-      beep();
+      Serial.println("Command #12 is currently unused");
     } break;
   case 13:
     {
-      // Power-off SRAM for however long
+      // Power-off SRAM manually for however long
       turnOffSRAM();
-      promptForDecimalNumber("SRAM is now off, enter any digits to turn it back on >");
+      auto startTime = micros();
+      Serial.println("SRAM is now off, enter anything to turn it back on and continue...");
+      
+      serialPromptLine(nullptr, 0);
+
       turnOnSRAM();
+
+      auto duration = micros() - startTime;
+      Serial.print("Off time = ");
+      Serial.print(duration);
+      Serial.println(" microseconds");
     } break;
   case 14:
     {
       // Collect power-up Hamming weight multiple times
       auto off_us = promptForDecimalNumber("power-off time (us) = ");
       auto cycles = promptForDecimalNumber("number of cycles = ");
-      auto base = promptForHexNumber("base address (hex) = ");
+      auto base = promptForHexNumber("base address (hex) = 0x");
       auto length = promptForDecimalNumber("address count (0 for the full memory size) = ");
       if (length == 0) {
         length = NUM_WORDS;
@@ -1357,12 +1369,98 @@ void loop() {
         Serial.println("Are they the same chip? YES");
       }
     } break;
+  case 17:
+    {
+      // Repeat a write/power-off/read cycle multiple times.
+      // Like a remanence experiment, but with constant power-off time.
+      int repeats = promptForDecimalNumber("Set the number of repeats: ");
+      if (repeats == 0 || repeats > 999) {
+        // Probably not right
+        Serial.print("Not accepting repeats = ");
+        Serial.println(repeats);
+        break;
+      }
+      int delay = promptForDecimalNumber("Set a power-off time between cycles (ms): ");
+      int count = promptForDecimalNumber("Use address range 0 up to: ");
+      if (count == 0) {
+        Serial.println("(Got 0, replacing with NUM_WORDS)");
+        count = NUM_WORDS;
+      }
+      uint16_t value = promptForHexNumber("Set a 16-bit hex value to fill SRAM with: 0x");
+      for (int i = 0; i < repeats; i++) {
+        // Log trial/repeat sequence number for easier human-readability of a dump file
+        Serial.println();
+        Serial.print("=== Repeat ");
+        Serial.print(i + 1);
+        Serial.print(" of ");
+        Serial.print(repeats);
+        Serial.println(" ===");
+
+        // Print my "standard" trial marker line (but the delay is always the same)
+        Serial.print("Beginning next trial with delay of ");
+        Serial.print(delay);
+        Serial.println("ms");
+
+        // Write the value to all SRAM addresses
+        Serial.print("Filling SRAM with 0x");
+        printWordHex4(value);
+        fillRangeOfSRAM(value, 0, count, 1, true);
+
+        // Power off and on again
+        powerCycleSRAM1(delay);
+
+        // Dump SRAM values
+        printSectionMemoryDump_v2(0, count, 1);
+      }
+
+      // Done
+      Serial.println();
+      Serial.println("Done with command #17");
+      beep();
+    } break;
   default:
     {
       // Received an unhandled choice number
-      Serial.print("Invalid command choice: ");
-      Serial.println(choice);
-      printChoices();
+      Serial.print("Invalid command choice '");
+      Serial.print(choice);
+      Serial.println("'");
     } break;
   }
+}
+
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("Hello from Arduino!");
+
+  // Setup pins to SRAM chip
+  setupControlPins();
+  setupAddressPins();
+
+  // Reset SRAM chip
+  turnOffSRAM();
+  turnOnSRAM();
+
+  // Check SRAM chip socket connection
+  Serial.print("Now checking if the SRAM chip is in the socket correctly...");
+  if (chipOk = checkConnectedChip()) {
+    Serial.println("\n\n>>>> OK <<<<\n");
+  }
+  else {
+    beep();
+    Serial.println("\n\n>>>> NOT ok <<<<\n");
+  }
+}
+
+
+void loop() {
+  printChoices();
+
+  if (!chipOk) {
+    Serial.println("NOTE: chip was NOT ok at the end of setup.");
+  }
+  constexpr int x = 0x35;
+  auto choice = promptForDecimalNumber("Enter choice number: ");
+  Serial.println("---");
+  handleCommandNumber(choice);
 }

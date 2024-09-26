@@ -17,28 +17,6 @@ NUM_BITS = BITS_PER_WORD * NUM_WORDS
 HEX4_WORD_PATTERN = re.compile(r"[a-f0-9]{4}", re.IGNORECASE)
 
 
-def main():
-    print("[INFO] Serial Analysis - main()")
-    test()
-    # print(f"Number of data words: {NUM_WORDS:,}")
-    # print(f"Number of data bits: {NUM_BITS:,}")
-
-    # bit_diff_files("chip inh2 gold PUF/gold PUF.txt", "chip inh2 gold PUF/capture 1.txt")
-
-    # for i in range(1,12):
-    #     bit_diff_files("chip inh2 gold PUF/gold PUF.txt", f"chip inh2 gold PUF/capture {i}.txt")
-
-    #diff_puf_and_trials_dump("chips/inh1/gold PUF.txt", "remenance experiment 19.txt", 1024)
-
-    # with open(r"serial-data\inh1-90nm-other-setup-pattern-test.txt", "rb") as f:
-    #     check_file_increasing(f)
-
-    # convert_hex_file(r"Monalisa\test_monalisa_hex.txt", r"Monalisa\test_monalisa_hex4.txt")
-    # create_gold_puf_v2(11, r"serial-data\inh3-250nm-captures-for-puf-1.txt", "output.txt")
-
-    # diff_puf_and_multi_capture(r"output.txt", r"serial-data\inh3-250nm-captures-for-puf-1.txt")
-
-
 def main_create_gold_puf():
     num_captures = 11
     assert(num_captures % 2 != 0) # must be odd so there are no voting ties
@@ -136,8 +114,10 @@ def create_gold_puf_v2(num_captures: int, input_file_name: str, output_file_name
                 if bit_votes_for_one[bit_i] > (num_captures // 2):
                     word_value |= (1 << word_bit_i)
             # Save hex representation of the majority word to the output file
-            ending = '' if word_i == (num_words - 1) else '\n' # no newline for the last line
+            ending = '' if word_i == (num_words - 1) else ' ' # no newline for the last line
             print(f"{word_value:04X}", file=file_out, end=ending)
+            if (word_i + 1) % 16 == 0:
+                print(file=file_out)
 
     print("done")
 
@@ -615,13 +595,18 @@ def file_hamming_weight(file_in, num_words: int) -> int:
     return sum(map(hamming_weight, file_read_hex4_dump_as_words(file_in, num_words)))
 
 
-def bit_diff_files(file_name_a: str, file_name_b: str, num_words: int=NUM_WORDS) -> int:
-    print(f"Comparing bits from data files '{file_name_a}' and '{file_name_b}'...")
+def bit_diff_files(file_name_a: str, file_name_b: str, num_words: int=NUM_WORDS, do_print=True) -> int:
+    if do_print:
+        print(f"Comparing bits from data files '{file_name_a}' and '{file_name_b}'...")
+
     with open(file_name_a, "rb") as file_a:
         with open(file_name_b, "rb") as file_b:
             a_hw, b_hw, diff = bit_diff_within_files(file_a, file_b, num_words)
+
+    if do_print:
         report_file_bit_diff(file_name_a, file_name_b, a_hw, b_hw, diff, num_words*BITS_PER_WORD)
-        return diff
+
+    return diff
 
 
 def bit_diff_files_full_ratio(file_a: str, file_b: str, num_words: int=NUM_WORDS) -> tuple[float, float, float]:
@@ -1103,7 +1088,3 @@ def file_load_trial_for_delay(file_name: str, delay_ms: float, max_count: int|No
         if max_count is not None:
             num_words = min(num_words, max_count)
         return file_load_words(file_in, num_words)
-        
-
-if __name__ == '__main__':
-    main()

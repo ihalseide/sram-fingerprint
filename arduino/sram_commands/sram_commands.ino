@@ -880,7 +880,8 @@ void writeReceivedImageBasic(void) {
 }
 
 
-// Write a set value to some memory and check that the same value reads back
+// Write a set value to some memory and check that the same value reads back.
+// (A memory range starts at base, and goes up to base+count, by a step of step).
 bool checkWriteAndReadBackValue(uint32_t value, uint16_t base_address, uint16_t count) {
   for (auto i = 0; i < count; ++i) {
     writeWord(base_address + i, value);
@@ -1010,6 +1011,7 @@ bool checkConnectedChip(void) {
 
 
 // Do a memory dump with the required surrounding text that my Python code will look for.
+// (A memory range starts at base, and goes up to base+count, by a step of step).
 void printSectionMemoryDump(uint32_t baseAddress, uint32_t count, unsigned int step) {
   Serial.println("[begin memory dump]");
   dumpRangeOfSRAM(baseAddress, count, step, false);
@@ -1018,6 +1020,7 @@ void printSectionMemoryDump(uint32_t baseAddress, uint32_t count, unsigned int s
 
 
 // Do a memory dump with the required surrounding text that my Python code will look for.
+// (A memory range starts at base, and goes up to base+count, by a step of step).
 // (New version 2, which logs the parameters)
 void printSectionMemoryDump_v2(uint32_t baseAddress, uint32_t count, unsigned int step) {
   Serial.println("Starting memory dump...");
@@ -1091,6 +1094,7 @@ short int intHammingDistance(unsigned long x, unsigned long y) {
 
 
 // Sum up the Hamming weight of a range of SRAM memory.
+// (A memory range starts at base, and goes up to base+count, by a step of step).
 uint32_t rangeHammingWeight(uint32_t baseAddress, uint32_t count, uint32_t step) {
   if (step == 0) {
     // Prevent entering an infinite loop
@@ -1105,6 +1109,7 @@ uint32_t rangeHammingWeight(uint32_t baseAddress, uint32_t count, uint32_t step)
 
 
 // Sum up the Hamming weight of a range of SRAM memory, with progress output.
+// (A memory range starts at base, and goes up to base+count, by a step of step).
 uint32_t rangeHammingWeightProgress(uint32_t baseAddress, uint32_t count, uint32_t step) {
   if (step == 0) {
     // Prevent entering an infinite loop

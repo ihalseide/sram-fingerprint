@@ -26,7 +26,6 @@ constexpr unsigned int dataPins[] = { 22, 23, 24, 25, 26, 27, 28, 29, 37, 38, 39
 constexpr unsigned int unused_analog_pin = A0;
 static uint16_t wordStorage[NUM_WORDS/8]; // This is the biggest that I can make it
 unsigned long wordStorageCount = 0;
-static bool chipOk = false;
 
 
 // Put SRAM chip control pins in the right mode (input or output)
@@ -315,11 +314,32 @@ void turnOnSRAM() {
 }
 
 
+// Check that the pMOS can actually power off an SRAM chip (by checking that there IS data loss after power-off then power-on)
+bool checkPowerControl() {
+  constexpr uint16_t value = 0x5A5A;
+  constexpr int start = 0, stop = 1028, step = 8;
+
+  fillRangeOfSRAM(value, start, stop, step, false);
+
+  powerCycleSRAM1(5000);
+
+  for (int i = start; i < stop; i += step) {
+    if (readWord(i) != value) {
+      // Data loss --> power cycle did work
+      return true;
+    }
+  }
+
+  // No data loss --> power cycle did not work
+  return false;
+}
+
+
 // Turn the SRAM chip OFF and ON again, with a time delay in-between.
 // This version is when the delay is given as two integers: delay in milliseconds (ms) and additional delay in microseconds (us).
 void powerCycleSRAM2(uint32_t delay_ms, uint32_t delay_us) {
   // Logging, so that my Python data parsing scipt knows about all power-off events
-  Serial.print("Powering cycling the SRAM for "); // "Powering" is a typo, but keep it for backwards-compatibility
+  Serial.print("Turning off the SRAM power for "); // "Powering" is a typo, but keep it for backwards-compatibility
   Serial.print(delay_ms);
   Serial.print("ms + ");
   Serial.print(delay_us);
@@ -1136,6 +1156,7 @@ void beep(void) {
 
 void printChoices(void) {
   Serial.println("===== Available command choices =====");
+  Serial.println("  0) test SRAM memory and the power switch pMOS");
   Serial.println("  1) dump memory range");
   Serial.println("  2) fill memory range a given value");
   Serial.println("  3) power cycle SRAM");
@@ -1158,6 +1179,25 @@ void printChoices(void) {
 
 void handleCommandNumber(int choice) {
   switch (choice) {
+  case 0:
+    {
+      // Check SRAM chip socket connection
+      Serial.print("Now running a test to check if the SRAM chip is working...");
+      if (!checkConnectedChip()) {
+        Serial.println("\n\n>>>> NOT ok <<<<\n");
+        return;
+      }
+      Serial.println("\n\n>>>> OK <<<<\n");
+
+      // Check that the pMOS can turn chip on and off
+      Serial.println("Now running a test to check if the pMOS can power on/off the SRAM chip...");
+      if (checkPowerControl()) {
+        Serial.println("\n\n>>>> OK <<<<\n");
+      }
+      else {
+        Serial.println("\n\n>>>> NOT ok <<<<\n");
+      }
+    } break;
   case 1:
     {
       // dump memory
@@ -1441,31 +1481,14 @@ void setup() {
   // Setup pins to SRAM chip
   setupControlPins();
   setupAddressPins();
-
-  // Reset SRAM chip
-  turnOffSRAM();
-  turnOnSRAM();
-
-  // Check SRAM chip socket connection
-  Serial.print("Now checking if the SRAM chip is in the socket correctly...");
-  if (chipOk = checkConnectedChip()) {
-    Serial.println("\n\n>>>> OK <<<<\n");
-  }
-  else {
-    beep();
-    Serial.println("\n\n>>>> NOT ok <<<<\n");
-  }
 }
 
 
 void loop() {
   printChoices();
 
-  if (!chipOk) {
-    Serial.println("NOTE: chip was NOT ok at the end of setup.");
-  }
-  constexpr int x = 0x35;
   auto choice = promptForDecimalNumber("Enter choice number: ");
   Serial.println("---");
+
   handleCommandNumber(choice);
 }

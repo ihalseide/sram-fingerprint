@@ -606,6 +606,8 @@ void runCustomRemanenceExperiment(void) {
       // Extra delay, just in case
       delay(1000);
     }
+
+    randomSequenceEnd();
   }
 
   if (choice != 0) {
@@ -667,6 +669,8 @@ void runCustomRemanenceExperiment(void) {
         // Extra delay, just in case
         delay(1000);
       }
+
+      randomSequenceEnd();
     }
   }
 
@@ -723,11 +727,25 @@ void runCumulativeRemanenceExperiment(double start, double stop, double step) {
 }
 
 
-// RS = random sequence, for iterating an array randomly
-bool rs_visited[500];
-unsigned int rs_index = 0;
-unsigned int rs_length = 0;
+
+//--------------------------------------------------
+// Random sequence (RS) code
+//--------------------------------------------------
+// This is used for iterating an array randomly.
+//
+// The "API" is that you call `randomSequenceBegin(N)` once, then `randomSequenceNext` N times, and then call `randomSequenceEnd`.
+bool rs_isBegun = false;
+unsigned int rs_index = 0; // this is a counter between 0 and rs_length, incremented to keep track of when the end has been reached.
+unsigned int rs_length = 0; // indicates the end of the current random sequence
+bool rs_visited[500]; // array to lookup whether an index has been visited/returned yet.
+
 bool randomSequenceBegin(unsigned int length) {
+  // To allow for this code to be simpler (using global variables) only allow one RS at a time.
+  if (rs_isBegun) {
+    return false;
+  }
+  rs_isBegun = true;
+  
   constexpr unsigned int maxLength = sizeof(rs_visited) / sizeof(rs_visited[0]);
   if (length > maxLength) {
     return false;
@@ -737,27 +755,38 @@ bool randomSequenceBegin(unsigned int length) {
   // initialize random state
   randomSeed(analogRead(unused_analog_pin));
 
+  // Reset index/count to 0
   rs_index = 0;
 
+  // Reset the array for whether each index was visited/returned yet.
   for (int i = 0; i < rs_length; i++) {
     rs_visited[i] = false;
   }
 
   return true;
 }
+
+// Returns the next random index, except when it returns -1 to indicate the end of the sequence.
 int randomSequenceNext() {
   if (rs_index >= rs_length) {
     return -1;
   }
+
+  // Search for an unused index to mark and return.
   while (1) {
     int i = random(rs_length);
     if (!rs_visited[i]) {
-      rs_visited[i] = true;
+      rs_visited[i] = true; // mark index `i` as visited
       rs_index++;
       return i;
     }
   }
 }
+
+void randomSequenceEnd() {
+  rs_isBegun = false;
+}
+//--------------------------------------------------
 
 
 // Get a 4-digit hex word from the Serial data stream.

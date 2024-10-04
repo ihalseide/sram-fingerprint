@@ -1430,7 +1430,7 @@ void handleCommandNumber(int choice) {
 
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(250000, SERIAL_8E1); // 250kBaud, 8-bit word, even Parity, with 1 stop bit
   Serial.println("Hello from Arduino!");
 
   // Setup pins to SRAM chip

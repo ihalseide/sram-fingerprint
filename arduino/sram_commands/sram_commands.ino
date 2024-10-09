@@ -1183,6 +1183,34 @@ uint32_t rangeHammingWeightProgress(uint32_t baseAddress, uint32_t count, uint32
 }
 
 
+// - count = number of trials
+// - delay = same delay to power cycle for
+int averageHammingWeightForDelay(int count, int delay_ms, int fillValue, int baseAddr, int countAddr) {
+  float avg = -1;
+
+  for (int i = 0; i < count; i++) {
+    fillRangeOfSRAM(fillValue, baseAddr, countAddr, 1, false);
+
+    turnOffSRAM();
+    delay(delay_ms);
+    turnOnSRAM();
+
+    auto hw = rangeHammingWeight(baseAddr, countAddr, 1);
+    if (avg < 0) {
+      // Initialize
+      avg = hw;
+    }
+    else {
+      // Update average
+      float n = i + 1;
+      avg = avg * (n - 1.0) / n + (float) hw / n;
+    }
+  }
+  
+  return (int) avg;
+}
+
+
 // Writes all-0s to the SRAM and finds at what time bits are done flipping from 0 to 1
 // by doing a binary search
 // Parameters `t1` and `t2` are the search's power-off start and end times, in milliseconds.
@@ -1193,38 +1221,36 @@ int findBitFlipStopTime(int t1, int t2, int baseAddr, int countAddr) {
     return 0;
   }
 
-  constexpr int step = 1;
+  constexpr int zero = 0, step = 1, avgTrials = 5;
 
   int iterationsCompleted = 0;
 
   while (t1 < t2) {
+    Serial.print("In iteration #"); Serial.println(iterationsCompleted + 1);
+
     // Get Hamming Weight at off-time = t1
-    fillRangeOfSRAM(0x0000, baseAddr, countAddr, step, false);
-    if (t1 > 0) {
-      powerCycleSRAM1(t1);
-    }
-    auto hw1 = rangeHammingWeight(baseAddr, countAddr, step);
+    Serial.print("* t = "); Serial.print(t1);
+    auto hw1 = averageHammingWeightForDelay(avgTrials, t1, zero, baseAddr, countAddr);
+    Serial.print(" --> HW = "); Serial.println(hw1);
 
     // Get Hamming Weight at the midpoint of t1 and t2
-    fillRangeOfSRAM(0x0000, baseAddr, countAddr, step, false);
     int t1_2 = (t1 + t2) / 2;
-    powerCycleSRAM1(t1_2);
-    auto hw1_2 = rangeHammingWeight(baseAddr, countAddr, step);
+    Serial.print("* t = "); Serial.print(t1_2);
+    auto hw1_2 = averageHammingWeightForDelay(avgTrials, t1_2, zero, baseAddr, countAddr);
+    Serial.print(" --> HW = "); Serial.println(hw1_2);
 
     // Get Hamming Weight at off-time = t2
-    fillRangeOfSRAM(0x0000, baseAddr, countAddr, step, false);
-    powerCycleSRAM1(t2);
-    auto hw2 = rangeHammingWeight(baseAddr, countAddr, step);
+    Serial.print("* t = "); Serial.print(t2);
+    auto hw2 = averageHammingWeightForDelay(avgTrials, t2, zero, baseAddr, countAddr);
+    Serial.print(" --> HW = "); Serial.println(hw2);
+
+    if (hw1 == hw1_2 && hw1_2 == hw2) {
+      Serial.println("Not a big enough time range.");
+      return 0;
+    }
 
     // I expect the HW is increasing over time, up until a point,
     // and we want to find that point where the HW stays the same...
-
-    // Log the time and Hamming weights where this occurred.
-    Serial.print("In iteration #"); Serial.println(iterationsCompleted + 1);
-    Serial.print("* t1 = "); Serial.print(t1); Serial.print(", hw1 = "); Serial.println(hw1);
-    Serial.print("* t1_2 = "); Serial.print(t1_2); Serial.print(", hw1_2 = "); Serial.println(hw1_2);
-    Serial.print("* t2 = "); Serial.print(t2); Serial.print(", hw2 = "); Serial.println(hw2);
-
     // Check the above-mentioned assumption
     if (!(hw1 <= hw1_2 && hw1_2 <= hw2)) {
       // If this happens, our assumption is wrong in this case.
@@ -1402,7 +1428,7 @@ void handleCommandNumber(int choice) {
       auto t1 = 1; // millis
       auto t2 = promptForDecimalNumber("Search time endpoint (ms)"); // millis
       // TODO: after testing, use the whole SRAM range!
-      auto result = findBitFlipStopTime(t1, t2, 0, 2*1024);
+      auto result = findBitFlipStopTime(t1, t2, 0, 10*1024);
       Serial.print("Bits stop flipping at time = ");
       Serial.print(result);
       Serial.println(" ms");

@@ -19,7 +19,7 @@ HEX4_WORD_PATTERN = re.compile(r"[a-f0-9]{4}", re.IGNORECASE)
 
 def main_create_gold_puf():
     num_captures = 11
-    assert(num_captures % 2 != 0) # must be odd so there are no voting ties
+    assert num_captures % 2 != 0, "num_captures must be odd so there are no voting ties"
     input_file_names = [ f"chip inh2 gold PUF/capture {i}.txt" for i in range(1, 1 + num_captures) ]
     output_file_name = "chip inh2 gold PUF/gold PUF.txt"
     
@@ -486,7 +486,7 @@ def file_find_bit_flips(file_in, expected_word_count: int | None = None, verbose
 
 
 
-def file_find_bit_flips_v2(original_file, file_in, num_words: int, word_flip=True) -> np.array:
+def file_find_bit_flips_v2(original_file, file_in, num_words: int, word_flip=True) -> np.ndarray:
     '''
     Get a list for all of the bits in a memory dump(s) file and the delay times where they first flip.
     This is an improvement over the original 'file_find_bit_flips' function.

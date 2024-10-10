@@ -4,7 +4,7 @@ Author: INH
 '''
 
 
-import re, math
+import re, math, struct
 import numpy as np
 from operator import xor
 from typing import BinaryIO, Iterable
@@ -188,16 +188,16 @@ def create_gold_puf_classification(num_captures: int, input_file_name: str, outp
     print("done")
 
 
-def file_read_hex4_dump_as_words(file_in, num_words: int) -> np.ndarray:
+def file_read_hex4_dump_as_words(file_in, num_words: int, binary_format=False) -> np.ndarray:
     '''Load a hex4 memory dump file as a 1D array of 16-bit integer words.'''
     # Allow the first argument to be a string or a file
     if isinstance(file_in, str):
-        with open(file_in, 'rb') as file_in2:
-            return file_read_hex4_dump_as_words(file_in2, num_words)
+        with open(file_in, 'rb') as arg1:
+            return file_read_hex4_dump_as_words(arg1, num_words, binary_format)
         
     result = np.empty(num_words, dtype='uint16')
     for i in range(num_words):
-        result[i] = file_read_next_hex4(file_in)
+        result[i] = file_read_next_hex4(file_in, binary_format)
     
     return result
 
@@ -323,24 +323,40 @@ def file_seek_next_data_dump(file_in) -> str | None:
     return None
 
 
-def file_seek_next_data_dump_and_count_it(file_in: BinaryIO) -> int:
+def file_seek_next_data_dump_and_count_it(file_in: BinaryIO, binary_dump_format = False) -> int:
     '''Find the size of the next data dump, and keep the read offset at the beginning of that data dump'''
     if not file_seek_next_data_dump(file_in):
         raise ValueError('did not find the start of a data dump')
     file_offset = file_in.tell() # Save offset so we can go back to it later
-    count = file_count_data_dump(file_in)
+    count = file_count_data_dump(file_in, binary_dump_format)
     file_in.seek(file_offset) # Reset to the beginning of the original dump
     return count
 
 
-def file_count_data_dump(file_in: BinaryIO) -> int:
-    '''Count the number of lines from the current position in a file before encountering the "end of memory dump" marker/line.'''
-    count = 0
-    while line := file_in.readline().decode('ascii'):
-        if line.strip() == "[end memory dump]":
-            break
-        count += 1
-    return count
+def file_count_data_dump(file_in: BinaryIO, binary_dump_format = False) -> int:
+    '''Count the number of words from the current position in a file before encountering the "end of memory dump" marker/line.'''
+    if binary_dump_format:
+        marker = "[end memory dump]".encode("ascii")
+        count = 0
+        while True:
+            line_bytes = file_in.readline()
+            if line_bytes.endswith(marker):
+                # Add data before
+                count += len(line_bytes) - len(marker)
+                # End of dump
+                break
+            else:
+                count += len(line_bytes)
+        return count // 2 - 1 # 2 bytes per word, minus the last 2 chars (\r\n) at the end
+    else:
+        count = 0
+        while True:
+            line_bytes = file_in.readline()
+            line = line_bytes.decode('ascii')
+            if line.strip() == "[end memory dump]":
+                break
+            count += len(line.split(' ')) # add the number of space-delimited hex words on that line
+        return count
 
 
 def bit_diff_within_files(file_a, file_b, num_words_to_read: int = NUM_WORDS, file_a_name="file_a", file_b_name="file_b") -> tuple[int, int, int]:
@@ -631,17 +647,19 @@ def file_skip_space(file_in):
         file_in.read(1)
 
 
-def file_read_next_hex4(file_in) -> int:
+def file_read_next_hex4(file_in, binary_format=False) -> int:
     '''
     Within an already-open file for reading, skip whitespace and then read a 4-digit hex number.
     Raises a 'ValueError' if it cannot read that from the file.
     '''
-    file_skip_space(file_in)
-    # Read word
-    word_hex = file_in.read(4).decode('ascii')
-    if not HEX4_WORD_PATTERN.match(word_hex):
-        raise ValueError(f"invalid 4-digit hex word: \"{word_hex}\"")
-    return int(word_hex, 16)
+    if binary_format:
+        # Read 2 bytes (big-endian unsigned short) --> 16-bit word
+        return struct.unpack('>H', file_in.read(2))[0]
+    else:
+        word_hex = file_in.read(4).decode('ascii')
+        if not HEX4_WORD_PATTERN.match(word_hex):
+            raise ValueError(f"invalid 4-digit hex word: \"{word_hex}\"")
+        return int(word_hex, 16)
 
 
 def file_read_next_hex4_no_error(file_in) -> int | None:

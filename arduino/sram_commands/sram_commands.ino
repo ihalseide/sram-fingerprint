@@ -26,6 +26,7 @@ constexpr unsigned int dataPins[] = { 22, 23, 24, 25, 26, 27, 28, 29, 37, 38, 39
 constexpr unsigned int unused_analog_pin = A0;
 static uint16_t wordStorage[NUM_WORDS/8]; // This is the biggest that I can make it
 unsigned long wordStorageCount = 0;
+static bool dumpInBinary = false;
 
 
 // Put SRAM chip control pins in the right mode (input or output)
@@ -147,12 +148,24 @@ void writeWord(uint32_t address, uint16_t value) {
 }
 
 
-// Print a 4-digit hex word, padded with leading zeros.
+// Print a 16-bit word as a 4-digit hex text, padded with leading zeros.
+// High byte comes out first.
 void printWordHex4(uint16_t word) {
   if (word < 0x10) { Serial.print("000"); }
   else if (word < 0x100) { Serial.print("00"); }
   else if (word < 0x1000) { Serial.print("0"); }
   Serial.print(word, HEX);
+}
+
+
+// Dump a 16-bit word as 2 raw ASCII binary bytes.
+// High byte comes out first (to match the printWordHex4 function).
+void printWordRawBinary(uint16_t word) {
+  uint8_t lo = word & 0xFF;
+  uint8_t hi = (word >> 8) & 0xFF;
+  
+  Serial.write(hi); // write high byte of the 16-bit word
+  Serial.write(lo); // write low byte of the 16-bit word
 }
 
 
@@ -176,9 +189,9 @@ void serialPromptLine(char *buffer, int bufferSize) {
 
     // backspace
     if (lastChar == '\b' && i > 0) {
-      // echo back
-      Serial.print(lastChar);
-      Serial.flush();
+      // Don't echo back
+      // Serial.print(lastChar);
+      // Serial.flush();
       i--;
       continue;
     }
@@ -188,9 +201,9 @@ void serialPromptLine(char *buffer, int bufferSize) {
       i++;
     }
 
-    // echo back
-    Serial.print(lastChar);
-    Serial.flush();
+    // Don't echo back
+    // Serial.print(lastChar);
+    // Serial.flush();
   }
 
   if (buffer && bufferSize) {
@@ -443,41 +456,68 @@ void dumpRangeOfSRAM(uint32_t base_address, uint32_t count, unsigned int step, b
 // NOTE: "interruptable" just means that the function will return early if an input character is received from the Serial monitor.
 // (NEW version 2 uses a space as a separator instead of a newline)
 void dumpRangeOfSRAM_v2(uint32_t base_address, uint32_t count, unsigned int step, bool interruptable) {
-  // clear pending serial input data (so we can notice a real input from Serial data that signifies an "interrupt")
-  while (interruptable && Serial.available()) {
-    Serial.read();
-  }
-
   // Prevent infinite loop that would happen if step == 0
   if (!step) {
     return;
   }
-  
-  for (uint32_t i = 0; i < count; i += step) {
-    // Print SPACE as separator, and a newline every 16 words
-    if (i != 0) {
-      if (i % 16 == 0) {
-        Serial.print('\n');
-        Serial.flush();
-      }
-      else {
-        Serial.print(' ');
-      }
-    }
-    // Print word
-    printWordHex4(readWord(base_address + i));
-    /*
-    // Flush serial because this seems to prevent data being lost in transmission
-    Serial.flush();
-    */
-    
-    // check for user interruption
-    if (interruptable && Serial.available()) {
-      Serial.println("[Interrupted by serial input]");
-      break;
+
+  // clear pending serial input data (so we can notice a real input from Serial data that signifies an "interrupt")
+  if (interruptable) {
+    while (Serial.available()) {
+      Serial.read();
     }
   }
-  Serial.println();
+
+  if (dumpInBinary) {
+
+    // Raw binary dump
+    for (uint32_t i = 0; i < count; i += step) {
+      // In raw binary dump, just do some periodic output flushing
+      if (i != 0 && i % 256 == 0) {
+        // Flush serial because this seems to prevent data being lost in transmission
+        Serial.flush();
+      }
+
+      printWordRawBinary(readWord(base_address + i));
+
+      // check for user interruption
+      if (interruptable && Serial.available()) {
+        Serial.println("[Interrupted by serial input]");
+        break;
+      }
+    }
+
+    Serial.println();
+
+  }
+  else {
+
+    // Hex dump
+    for (uint32_t i = 0; i < count; i += step) {
+      if (i != 0) {
+        // In ASCII hex dump, add spaces between words and add newlines after every 16 words
+        if (i % 16 == 0) {
+          Serial.print('\n');
+          // Flush serial because this seems to prevent data being lost in transmission
+          Serial.flush();
+        }
+        else {
+          Serial.print(' ');
+        }
+      }
+
+      printWordHex4(readWord(base_address + i));
+
+      // check for user interruption
+      if (interruptable && Serial.available()) {
+        Serial.println("[Interrupted by serial input]");
+        break;
+      }
+    }
+
+    Serial.println();
+    
+  }
 }
 
 
@@ -1076,8 +1116,15 @@ void printSectionMemoryDump_v2(uint32_t baseAddress, uint32_t count, unsigned in
   Serial.print("* base address = "); Serial.println(baseAddress, 16);
   Serial.print("* length = "); Serial.println(count);
   Serial.print("* step = "); Serial.println(step);
+
+  if (dumpInBinary) {
+    Serial.println("[BINARY]");
+  }
+
   Serial.println("[begin memory dump]");
+
   dumpRangeOfSRAM_v2(baseAddress, count, step, false);
+
   Serial.println("[end memory dump]");
 }
 
@@ -1234,15 +1281,15 @@ int findBitFlipStopTime(int t1, int t2) {
     // * Surely if (hw1_2 == hw_2), then the bits stopped flipping at or before t1_2.
     // * Otherwise, (hw1_2 < hw_2) and the bits should stop flipping at or after t1_2.
 
-    if (hw1_2 == hw_2) {
+    if (hw1_2 == hw2) {
       // Search the earlier half next iteration
       Serial.println("Earlier.");
-      t2 = hw1_2;
+      t2 = t1_2;
     }
     else {
       // Search the later half in the next iteration
       Serial.println("Later.");
-      t1 = hw1_2;
+      t1 = t1_2;
     }
 
     iterationsCompleted++;
@@ -1277,6 +1324,7 @@ void printChoices(void) {
   Serial.println(" 15) do experiment from command #6 multiple times");
   Serial.println(" 16) calculate Hamming distance between two SRAM chips");
   Serial.println(" 17) do a write/power-off/read cycle multiple times");
+  Serial.println(" 18) change memory dump data format");
 }
 
 
@@ -1568,6 +1616,36 @@ void handleCommandNumber(int choice) {
       Serial.println("Done with command #17");
       beep();
     } break;
+  case 18:
+    {
+      // change memory dump data format
+
+      // Prompt user for change input
+      Serial.println("Enter the number for one of the following options...");
+      Serial.println(" 0) (Cancel)");
+      Serial.println(" 1) HEX dump");
+      Serial.println(" 2) raw binary dump");
+      auto option2 = promptForDecimalNumber("Enter choice: ");
+
+      // Update the state (or not)
+      switch (option2) {
+      case 0: break;
+      case 1:
+        {
+          dumpInBinary = false;
+        } break;
+      case 2:
+        {
+          dumpInBinary = true;
+        } break;
+      default: break;
+      }
+
+      // Report state
+      Serial.print("Will print memory dumps in ");
+      Serial.println(dumpInBinary ? "raw binary bytes" : "ASCII hex");
+
+    } break;
   default:
     {
       // Received an unhandled choice number
@@ -1580,11 +1658,12 @@ void handleCommandNumber(int choice) {
 
 
 void setup() {
+  Serial.begin(180000, SERIAL_8E1);
   /* Notes:
      * 250000 Baud (8E1) memory dump 250kWords took 57s (has some data errors even with parity bit)
      * 115200 Baud (8N1) memory dump 250kWords took 109s
   */
-  Serial.begin(200000, SERIAL_8E1);
+  //Serial.begin(200000, SERIAL_8E1); // some errors occurr at 200kBaud
   
   Serial.println("Hello from Arduino!");
 
@@ -1598,6 +1677,7 @@ void loop() {
   printChoices();
 
   auto choice = promptForDecimalNumber("Enter choice number: ");
+
   Serial.println("---");
 
   handleCommandNumber(choice);

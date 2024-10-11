@@ -13,7 +13,7 @@ def main():
 
     num_dumps = int(input("Enter the number of data dumps to combine use from each file: "))
 
-    prefix = input("Enter the prefix string to add to the input file name to create the output file name: ")
+    suffix = input("Enter the prefix string to add to the input file name to create the output file name: ")
 
     if sys.argv[1:]:
         print("Using files from command line")
@@ -26,7 +26,7 @@ def main():
     print(f"Will process {num_files} files...")
 
     for i, filename_in in enumerate(input_files):
-        filename_out = prefix + filename_in
+        filename_out = filename_in + suffix
 
         print(f"({i + 1}/{num_files}) '{filename_in}' => '{filename_out}'")
 
@@ -36,10 +36,10 @@ def main():
             exit(1)
 
         try:
-            create_gold_puf_v2(num_dumps, filename_in, filename_out, NUM_WORDS)
+            create_gold_puf_v2(num_dumps, filename_in, filename_out, NUM_WORDS, binary_dump_format=True)
         except ValueError as e:
-            print(f"Encountered an error while reading '{filename_in}'...\n")
-            print(e)
+            print(f"Encountered an error while reading '{filename_in}'...")
+            print(type(e), e)
             print("\nContinuing with next file...")
 
     print("Done creating PUF files")

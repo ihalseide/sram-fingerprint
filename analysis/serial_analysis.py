@@ -72,7 +72,7 @@ def combine_captures(capture_file_names: list[str], output_file):
             print("[end memory dump]", file=output_file)
 
 
-def create_gold_puf_v2(num_captures: int, input_file_name: str, output_file_name: str, num_words: int = NUM_WORDS):
+def create_gold_puf_v2(num_captures: int, input_file_name: str, output_file_name: str, num_words: int = NUM_WORDS, binary_dump_format = False):
     '''
     Use majority voting to create a PUF file that represents the desired start up memory state, given multiple memory dumps.
     The 'input_file_name' should have multiple memory dumps (at least 'num_captures' of them) inside.
@@ -83,19 +83,19 @@ def create_gold_puf_v2(num_captures: int, input_file_name: str, output_file_name
     # print(f"output file name: \"{output_file_name}\"")
 
     # Array to map the data's bit index to number of votes that it should be set to a '1'
-    bit_votes_for_one = [ 0 for _ in range(num_words * BITS_PER_WORD) ]
+    bit_votes_for_one = np.zeros(num_words * BITS_PER_WORD, 'int')
 
     print(f"- loading file \"{input_file_name}\"")
     with open(input_file_name, "rb") as file_in:
-        for c in range(1, num_captures + 1):
-            print(f"Processing capture #{c} in the file")
+        for c in range(num_captures):
+            print(f"Processing capture #{c+1} in the file")
 
-            if file_seek_next_data_dump(file_in) is None:
-                raise ValueError(f"not enough memory dumps in input file '{input_file_name}': expected {num_captures} but stopped at {c}")
+            if file_seek_next_data_dump(file_in, binary_dump_format) is None:
+                raise ValueError(f"not enough memory dumps in input file '{input_file_name}': expected {num_captures} but stopped at {c+1}")
 
             # Read each data word from the data file
-            for word_i in range(num_words):
-                word = file_read_next_hex4(file_in)
+            dump = file_read_hex4_dump_as_words(file_in, num_words, binary_dump_format)
+            for word_i, word in enumerate(dump):
                 # Log the "bit vote" for each bit of the word
                 for word_bit_i in range(BITS_PER_WORD):
                     bit_i = (word_i * BITS_PER_WORD) + word_bit_i
@@ -113,6 +113,7 @@ def create_gold_puf_v2(num_captures: int, input_file_name: str, output_file_name
                 # Resolve the bit votes to see if '1' or '0' wins the majority
                 if bit_votes_for_one[bit_i] > (num_captures // 2):
                     word_value |= (1 << word_bit_i)
+                    
             # Save hex representation of the majority word to the output file
             ending = '' if word_i == (num_words - 1) else ' ' # no newline for the last line
             print(f"{word_value:04X}", file=file_out, end=ending)
@@ -316,11 +317,20 @@ def file_seek_next_delay_line(file_in) -> str | None:
     return None
 
 
-def file_seek_next_data_dump(file_in) -> str | None:
-    while line := file_in.readline().decode('ascii'):
-        if line.strip() == "[begin memory dump]":
-            return line
-    return None
+def file_seek_next_data_dump(file_in, binary_dump_format = False) -> str | None:
+    if binary_dump_format:
+        begin = "[begin memory dump]".encode('ascii')
+        while line := file_in.readline():
+            if line.startswith(begin):
+                print(f"(found dump beginning at index {file_in.tell()})")
+                return line.decode('ascii')
+            print(f"skipping: {line[:10]}")
+        return None
+    else:
+        while line := file_in.readline().decode('ascii'):
+            if line.startswith("[begin memory dump]"):
+                return line
+        return None
 
 
 def file_seek_next_data_dump_and_count_it(file_in: BinaryIO, binary_dump_format = False) -> int:

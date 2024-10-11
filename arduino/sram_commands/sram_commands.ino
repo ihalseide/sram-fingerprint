@@ -1658,7 +1658,7 @@ void handleCommandNumber(int choice) {
 
 
 void setup() {
-  Serial.begin(180000, SERIAL_8E1);
+  Serial.begin(115200, SERIAL_8E1);
   Serial.println("Hello from Arduino!");
 
   // Setup pins to SRAM chip

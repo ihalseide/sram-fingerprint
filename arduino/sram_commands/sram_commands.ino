@@ -1,6 +1,9 @@
-// This code is for dumping all the SRAM memory contents, using the Arduino DUE.
+// This is testbench Arduino DUE code for interfacing SRAM.
 // Author: INH
 
+
+// Serial port baudrate
+constexpr int THE_BAUDRATE = 115200;
 
 // SRAM memory size (the number of 16-bit words)
 constexpr uint32_t NUM_WORDS = 1 << 18; // equals 2^18 = 262144, for 18 address bits
@@ -1658,7 +1661,7 @@ void handleCommandNumber(int choice) {
 
 
 void setup() {
-  Serial.begin(115200, SERIAL_8E1);
+  Serial.begin(THE_BAUDRATE, SERIAL_8E1);
   Serial.println("Hello from Arduino!");
 
   // Setup pins to SRAM chip

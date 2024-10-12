@@ -324,7 +324,7 @@ def file_seek_next_data_dump(file_in, binary_dump_format = False) -> str | None:
             if line.startswith(begin):
                 print(f"(found dump beginning at index {file_in.tell()})")
                 return line.decode('ascii')
-            print(f"skipping: {line[:10]}")
+            # print(f"skipping: {line[:10]}")
         return None
     else:
         while line := file_in.readline().decode('ascii'):
@@ -338,6 +338,7 @@ def file_seek_next_data_dump_and_count_it(file_in: BinaryIO, binary_dump_format 
     if not file_seek_next_data_dump(file_in):
         raise ValueError('did not find the start of a data dump')
     file_offset = file_in.tell() # Save offset so we can go back to it later
+    #print(f"{file_offset=}")
     count = file_count_data_dump(file_in, binary_dump_format)
     file_in.seek(file_offset) # Reset to the beginning of the original dump
     return count
@@ -657,7 +658,7 @@ def file_skip_space(file_in):
         file_in.read(1)
 
 
-def file_read_next_hex4(file_in, binary_format=False) -> int:
+def file_read_next_hex4(file_in: BinaryIO, binary_format=False) -> int:
     '''
     Within an already-open file for reading, skip whitespace and then read a 4-digit hex number.
     Raises a 'ValueError' if it cannot read that from the file.
@@ -666,9 +667,11 @@ def file_read_next_hex4(file_in, binary_format=False) -> int:
         # Read 2 bytes (big-endian unsigned short) --> 16-bit word
         return struct.unpack('>H', file_in.read(2))[0]
     else:
+        while chr(file_in.peek(1)[0]).isspace():
+            file_in.read(1)
         word_hex = file_in.read(4).decode('ascii')
         if not HEX4_WORD_PATTERN.match(word_hex):
-            raise ValueError(f"invalid 4-digit hex word: \"{word_hex}\"")
+            raise ValueError(f"invalid 4-digit hex word: \"{word_hex}\" at position {file_in.tell()}")
         return int(word_hex, 16)
 
 

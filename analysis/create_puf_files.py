@@ -9,11 +9,11 @@ from files_grid_hd import ask_file_list
 
 
 def main():
-    print("This will take a list of input files and create the voted 'Gold PUF' file for each one. The new output files will be a prefix + the same name as the input file")
+    print("This will take a list of input files and create the voted 'Gold PUF' file for each one. The new output file namess will be the input name + a suffix")
 
     num_dumps = int(input("Enter the number of data dumps to combine use from each file: "))
 
-    suffix = input("Enter the prefix string to add to the input file name to create the output file name: ")
+    suffix = input("Enter the suffix string to append to the input file name to create the output file name: ")
 
     if sys.argv[1:]:
         print("Using files from command line")
@@ -22,6 +22,8 @@ def main():
         input_files = ask_file_list()
 
     num_files = len(input_files)
+
+    binary_format = True
 
     print(f"Will process {num_files} files...")
 
@@ -36,7 +38,7 @@ def main():
             exit(1)
 
         try:
-            create_gold_puf_v2(num_dumps, filename_in, filename_out, NUM_WORDS, binary_dump_format=True)
+            create_gold_puf_v2(num_dumps, filename_in, filename_out, NUM_WORDS, binary_format)
         except ValueError as e:
             print(f"Encountered an error while reading '{filename_in}'...")
             print(type(e), e)

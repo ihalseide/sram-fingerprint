@@ -11,7 +11,7 @@ import numpy as np
 from serial_analysis import *
 
 
-def combine_captures_as_votes(num_captures: int, input_file_name: str, num_words: int = NUM_WORDS) -> np.array:
+def combine_captures_as_votes(num_captures: int, input_file_name: str, num_words: int = NUM_WORDS) -> np.ndarray:
     '''
     Use majority voting on all of the bits from a file with multiple memory dumps.
     The file at 'input_file_name' should have multiple memory dumps (at least 'num_captures' of them) inside.

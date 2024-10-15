@@ -20,7 +20,7 @@ def convert(filename, filename_out, num_words):
                 if line_str.strip() == '[BINARY]':
                     line2 = file_in.readline().decode('ascii')
                     assert line2.strip() == '[begin memory dump]', "file has [BINARY] without beginnning data dump"
-                    print(line2[:-1], end='', file=file_out)
+                    print(line2[:-1].replace('\r', ''), file=file_out)
                     
                     remaining_bytes_to_read = num_words * 2 # 1 word is 2 bytes
                     data = file_in.read(remaining_bytes_to_read)
@@ -36,7 +36,7 @@ def convert(filename, filename_out, num_words):
                         if (i + 1) % 16 == 0 and (i != num_words - 1):
                             print(file=file_out)
                 else:
-                    print(line_str[:-1], end='', file=file_out)
+                    print(line_str[:-1].replace('\r', ''), file=file_out)
 
 
 def main():

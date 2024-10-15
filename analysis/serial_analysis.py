@@ -318,8 +318,8 @@ def file_seek_next_delay_line(file_in) -> str | None:
 
 
 def file_seek_next_data_dump(file_in, binary_dump_format = False) -> str | None:
+    begin = "[begin memory dump]".encode('ascii')
     if binary_dump_format:
-        begin = "[begin memory dump]".encode('ascii')
         while line := file_in.readline():
             if line.startswith(begin):
                 print(f"(found dump beginning at index {file_in.tell()})")
@@ -327,8 +327,9 @@ def file_seek_next_data_dump(file_in, binary_dump_format = False) -> str | None:
             # print(f"skipping: {line[:10]}")
         return None
     else:
-        while line := file_in.readline().decode('ascii'):
-            if line.startswith("[begin memory dump]"):
+        while line_bytes := file_in.readline():
+            line = line_bytes.decode("ascii")
+            if line.strip().startswith("[begin memory dump]"):
                 return line
         return None
 

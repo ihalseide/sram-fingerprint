@@ -7,12 +7,61 @@ from find_bit_strength import combine_captures_as_votes
 
 
 def file_load_captures(file_in: TextIO, num_captures: int, num_words: int) -> np.ndarray:
-    result = np.empty([num_captures, num_words], dtype="uint16")
+    result = np.empty((num_captures, num_words), dtype="uint16")
 
     for i in range(num_captures):
+        print(f"Reading capture {i+1}/{num_captures}")
         file_seek_next_data_dump(file_in)
         for j in range(num_words):
             result[i, j] = file_read_next_hex4(file_in)
+
+    return result
+
+
+def create_votes_np(captures: np.ndarray) -> np.ndarray:
+    num_captures = captures.shape[0]
+    num_words = captures.shape[1]
+    num_bits = num_words * BITS_PER_WORD
+
+    bit_votes_for_one = np.zeros(num_bits, dtype="uint8")
+
+    # for b in range(BITS_PER_WORD):
+    #     mask_array = np.full(num_words, fill_value=(1 << b), dtype="uint16")
+    #     for c in range(num_captures):
+    #         x = np.bitwise_and(captures[c,:], mask_array)
+    #     for w in range(num_words):
+    #         bit_votes_for_one[b:(w * BITS_PER_WORD + b):BITS_PER_WORD] = x
+
+    for word_i in range(num_words):
+        if word_i and word_i % 10_000 == 0:
+            print(f"Word #{word_i}")
+        for c in range(num_captures):
+            word = captures[c, word_i]
+            # Log the "bit vote" for each bit of the word
+            for word_bit_i in range(BITS_PER_WORD):
+                # Test bit number 'bit_i' and increment a vote if it is set
+                if word & (1 << word_bit_i) != 0:
+                    bit_i = (word_i * BITS_PER_WORD) + word_bit_i
+                    bit_votes_for_one[bit_i] += 1
+
+    return bit_votes_for_one
+
+
+def create_puf_np(bit_votes_for_1: np.ndarray, threshold: int) -> np.ndarray:
+    num_bits = bit_votes_for_1.shape[0]
+    num_words = num_bits // BITS_PER_WORD
+
+    assert bit_votes_for_1.shape[0] == num_words * BITS_PER_WORD
+
+    result = np.empty(num_words, dtype="uint16")
+    for i in range(num_bits):
+        b = i * BITS_PER_WORD
+        w = 0
+        for j in range(BITS_PER_WORD):
+            votes = bit_votes_for_1[b + j]
+            if votes > threshold:
+                w = w | (1 << j)
+        result[i] = w
 
     return result
 
@@ -47,6 +96,9 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
     print("Loading data")
     with open(in_path, "r") as hex_dump_in:
         captures_data = file_load_captures(hex_dump_in, num_captures=num_captures, num_words=num_words)
+    
+    print("Combining captures")
+    captures_bit_votes = create_votes_np(captures_data)
 
     captures_data_file_name = os.path.join(out_path, f"Captures-{num_captures}.npy")
     np.save(captures_data_file_name, captures_data, allow_pickle=False)
@@ -67,38 +119,37 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
 
     # Create PUF file
     print("Creating gold PUF")
-    gold_puf_fname = os.path.join(out_path, "Gold-PUF.txt")
+    gold_puf_fname1 = os.path.join(out_path, "Gold-PUF.txt")
+    gold_puf_fname2 = os.path.join(out_path, "Gold-PUF.npy")
     gold_puf_num_captures = num_captures
+    # Force the number of captures for the gold PUF to be odd (by excluding the last one)
     if gold_puf_num_captures % 2 == 0:
-        # Force the number of captures for the gold PUF to be odd (by excluding the last one)
         gold_puf_num_captures -= 1
-    create_gold_puf_v2(gold_puf_num_captures, in_path, gold_puf_fname, num_words)
+    gold_puf_data = create_puf_np(captures_bit_votes, (gold_puf_num_captures + 1) // 2)
+    np.save(gold_puf_fname2, gold_puf_data)
+
+    # Get gold PUF Hamming Weight (to add this info to the images below)
+    puf_hweight = np.sum(hamming_weight_vec(gold_puf_data))
+    puf_hweight_p = percent(puf_hweight, num_bits)
 
     # Get Hamming Distance between PUF and the dumps
     print("Calculating Hamming distances for each dump and the gold PUF")
     hdistances = []
-    with open(gold_puf_fname, "r") as gold_puf_file_in:
-        gold_puf_data = file_read_hex4_dump_as_words(gold_puf_file_in, num_words)
-        # Get gold PUF Hamming Weight (to add this info to the images below)
-        puf_hweight = np.sum(hamming_weight_vec(gold_puf_data))
-        puf_hweight_p = percent(puf_hweight, num_words * BITS_PER_WORD)
-    with open(in_path, "r") as hex_dump_in:
-        for _ in range(num_captures):
-            file_seek_next_data_dump(hex_dump_in)
-            dump_data = file_read_hex4_dump_as_words(hex_dump_in, num_words)
-            hd = np.sum(hamming_weight_vec(np.bitwise_xor(gold_puf_data, dump_data)))
-            hdistances.append(hd)
+    for i in range(num_captures):
+        hd = np.sum(hamming_weight_vec(np.bitwise_xor(captures_data[i], gold_puf_data)))
+        hdistances.append(hd)
     # Save Hamming weights to a new file
     print("Saving Hamming distances")
     hdistances_file = os.path.join(out_path, "Hamming-distances.txt")
     with open(hdistances_file, "w") as hdistances_file_out:
         for i, d in enumerate(hdistances):
-            print(i, d, percent(d, num_words * BITS_PER_WORD), file=hdistances_file_out)
+            print(f"{i}: {d} bits = {percent(d, num_bits):.3f}%", file=hdistances_file_out)
 
     # Create salt-and-pepper sample image from first few bits of the gold PUF 
     for size in (64, 128, 256, 512):
         print(f"Creating {size}x{size} salt-and-pepper image")
-        with open(gold_puf_fname, "r") as f_in:
+        # Use the file instead of the loaded data because its easy to re-use the file_read_image function
+        with open(gold_puf_fname1, "r") as f_in:
             img_data = file_read_image(f_in, size, size)
         f = plt.figure()
         ax = f.gca()
@@ -117,10 +168,9 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
             break
 
         print(f"Creating bit stability/strengh vote histogram figures ({num_votes} votes)")
-        binary_votes = combine_captures_as_votes(num_votes, in_path, num_words)
 
         votes_data_path = os.path.join(out_path, "Votes.npy")
-        np.save(votes_data_path, binary_votes, allow_pickle=False)
+        np.save(votes_data_path, captures_bit_votes, allow_pickle=False)
         
         # max_votes_num = np.max(binary_votes)
         max_votes_num = num_votes
@@ -131,13 +181,13 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
         ax.set_xlabel("Times appeared as a 1")
         ax.set_ylabel("Bits")
         # ax.hist(binary_votes, max_votes_num + 1, align='mid')
-        ax.hist(binary_votes, max_votes_num)
+        ax.hist(captures_bit_votes, max_votes_num)
         f.savefig(os.path.join(out_path, f"Binary-votes-out-of-{num_votes}.png"))
 
         vote_occurrences_path = os.path.join(out_path, f"Bit-Stability-{num_votes}-Bins.txt")
         with open(vote_occurrences_path, "w") as f_out:
             print("Bit stability vote occurrences:", file=f_out)
-            occ = np.bincount(binary_votes)
+            occ = np.bincount(captures_bit_votes)
             for i, n in enumerate(occ):
                 print(f"{i}: {n} bits = {percent(n, num_bits):3f}%", file=f_out)
 

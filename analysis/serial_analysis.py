@@ -7,7 +7,7 @@ Author: INH
 import re, math
 import numpy as np
 from operator import xor
-from typing import BinaryIO, Iterable
+from typing import BinaryIO, Iterable, TextIO
 from collections import defaultdict
 
 
@@ -86,7 +86,7 @@ def create_gold_puf_v2(num_captures: int, input_file_name: str, output_file_name
     bit_votes_for_one = [ 0 for _ in range(num_words * BITS_PER_WORD) ]
 
     print(f"- loading file \"{input_file_name}\"")
-    with open(input_file_name, "rb") as file_in:
+    with open(input_file_name, "r") as file_in:
         for c in range(1, num_captures + 1):
             print(f"Processing capture #{c} in the file")
 
@@ -142,7 +142,7 @@ def create_gold_puf_classification(num_captures: int, input_file_name: str, outp
     bit_votes_for_one = [ 0 for _ in range(NUM_BITS) ]
 
     print(f"- loading file \"{input_file_name}\"")
-    with open(input_file_name, "rb") as file_in:
+    with open(input_file_name, "r") as file_in:
         for c in range(1, num_captures + 1):
             print(f"Processing capture #{c} in the file")
 
@@ -188,17 +188,11 @@ def create_gold_puf_classification(num_captures: int, input_file_name: str, outp
     print("done")
 
 
-def file_read_hex4_dump_as_words(file_in, num_words: int) -> np.ndarray:
+def file_read_hex4_dump_as_words(file_in: TextIO, num_words: int) -> np.ndarray:
     '''Load a hex4 memory dump file as a 1D array of 16-bit integer words.'''
-    # Allow the first argument to be a string or a file
-    if isinstance(file_in, str):
-        with open(file_in, 'rb') as file_in2:
-            return file_read_hex4_dump_as_words(file_in2, num_words)
-        
     result = np.empty(num_words, dtype='uint16')
     for i in range(num_words):
         result[i] = file_read_next_hex4(file_in)
-    
     return result
 
 
@@ -317,7 +311,7 @@ def file_seek_next_delay_line(file_in) -> str | None:
 
 
 def file_seek_next_data_dump(file_in) -> str | None:
-    while line := file_in.readline().decode('ascii'):
+    while line := file_in.readline():
         if line.strip() == "[begin memory dump]":
             return line
     return None
@@ -470,7 +464,7 @@ def file_find_bit_flips(file_in, expected_word_count: int | None = None, verbose
 
 
 
-def file_find_bit_flips_v2(original_file, file_in, num_words: int, word_flip=True) -> np.array:
+def file_find_bit_flips_v2(original_file, file_in, num_words: int, word_flip=True) -> np.ndarray:
     '''
     Get a list for all of the bits in a memory dump(s) file and the delay times where they first flip.
     This is an improvement over the original 'file_find_bit_flips' function.
@@ -585,13 +579,7 @@ def __bit_difference(arrayA, arrayB, num_words) -> int:
     return difference
 
 
-def file_hamming_weight(file_in, num_words: int) -> int:
-    
-    # Allow the first argument to be an open file or a file name string
-    if isinstance(file_in, str):
-        with open(file_in, 'rb') as file_in2:
-            return file_hamming_weight(file_in2, num_words)
-        
+def file_hamming_weight(file_in: TextIO, num_words: int) -> int:        
     return sum(map(hamming_weight, file_read_hex4_dump_as_words(file_in, num_words)))
 
 
@@ -631,17 +619,21 @@ def file_skip_space(file_in):
         file_in.read(1)
 
 
-def file_read_next_hex4(file_in) -> int:
+def file_read_next_hex4(file_in: TextIO) -> int:
     '''
     Within an already-open file for reading, skip whitespace and then read a 4-digit hex number.
     Raises a 'ValueError' if it cannot read that from the file.
     '''
-    file_skip_space(file_in)
-    # Read word
-    word_hex = file_in.read(4).decode('ascii')
-    if not HEX4_WORD_PATTERN.match(word_hex):
-        raise ValueError(f"invalid 4-digit hex word: \"{word_hex}\"")
-    return int(word_hex, 16)
+    word = ""
+    while True:
+        c = file_in.read(1)
+        if not c:
+            raise ValueError(f"unexpected end of file at position #{file_in.tell()}")
+        if c.isspace():
+            continue
+        word += c
+        if len(word) == 4:
+            return int(word, 16)
 
 
 def file_read_next_hex4_no_error(file_in) -> int | None:
@@ -769,14 +761,8 @@ def convert_hex_file(file_name_in: str, file_name_out: str):
     print("Done")
 
 
-def file_read_image(file_in, img_width: int, img_height: int) -> np.ndarray:
-    '''Read 4-digit hex words from a dump file and convert it to a 2D numpy array, to act as a binary image'''
-    
-    # Allow the 'file_in' argument to be a file or a filename string
-    if isinstance(file_in, str):
-        with open(file_in, 'rb') as file_in2:
-            return file_read_image(file_in2, img_width, img_height)
-        
+def file_read_image(file_in: TextIO, img_width: int, img_height: int) -> np.ndarray:
+    '''Read 4-digit hex words from a dump file and convert it to a 2D numpy array, to act as a binary image'''        
     bits_2d = np.zeros([img_height, img_width], dtype='int16')
 
     num_img_bits = img_width * img_height

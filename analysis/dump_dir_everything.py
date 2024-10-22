@@ -6,6 +6,17 @@ from serial_analysis import *
 from find_bit_strength import combine_captures_as_votes
 
 
+def file_load_captures(file_in: TextIO, num_captures: int, num_words: int) -> np.ndarray:
+    result = np.empty([num_captures, num_words], dtype="uint16")
+
+    for i in range(num_captures):
+        file_seek_next_data_dump(file_in)
+        for j in range(num_words):
+            result[i, j] = file_read_next_hex4(file_in)
+
+    return result
+
+
 def show_binary_image_from_data(ax, ndarray):
     '''A "binary image" is a black-and-white only 2D image (no grayscale) and this function displays one'''
     ax.set_xticks([])
@@ -28,27 +39,31 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
     assert(os.path.isfile(in_path))
     assert(os.path.isdir(out_path))
 
-    # Create plain text dump file
-    # print("Converting binary dump to plaintext hex dump")
-    # text_dump_path = os.path.join(out_path, "Hex-dumps.txt")
-    # binary_dump_to_text(in_path, text_dump_path, num_words)
+    num_bits = num_words * BITS_PER_WORD
+
+    # create numpy vectorized function for later
+    hamming_weight_vec = np.vectorize(hamming_weight)
+
+    print("Loading data")
+    with open(in_path, "r") as hex_dump_in:
+        captures_data = file_load_captures(hex_dump_in, num_captures=num_captures, num_words=num_words)
+
+    captures_data_file_name = os.path.join(out_path, f"Captures-{num_captures}.npy")
+    np.save(captures_data_file_name, captures_data, allow_pickle=False)
 
     # Create file with list of Hamming Weights for each dump...
     # Get each dump's Hamming weight.
     print(f"Reading Hamming weights for each dump ({num_captures} of them)")
-    hweights = []
-    with open(in_path, "r") as hex_dump_in:
-        for _ in range(num_captures):
-            # print(end='.')
-            file_seek_next_data_dump(hex_dump_in)
-            hw = file_hamming_weight(hex_dump_in, num_words)
-            hweights.append(hw)
+    hweights = np.empty(num_captures)
+    for c in range(num_captures):
+        hweights[c] = np.sum(hamming_weight_vec(captures_data[c]))
+        
     # Save Hamming weights to a new file
     print("Saving Hamming weights")
     hweights_file = os.path.join(out_path, "Hamming-weights.txt")
     with open(hweights_file, "w") as hweights_file_out:
         for i, hw in enumerate(hweights):
-            print(i, hw, percent(hw, num_words * BITS_PER_WORD), file=hweights_file_out)
+            print(i, int(hw), percent(hw, num_bits), file=hweights_file_out)
 
     # Create PUF file
     print("Creating gold PUF")
@@ -58,9 +73,6 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
         # Force the number of captures for the gold PUF to be odd (by excluding the last one)
         gold_puf_num_captures -= 1
     create_gold_puf_v2(gold_puf_num_captures, in_path, gold_puf_fname, num_words)
-
-    # create numpy vectorized function for later
-    hamming_weight_vec = np.vectorize(hamming_weight)
 
     # Get Hamming Distance between PUF and the dumps
     print("Calculating Hamming distances for each dump and the gold PUF")
@@ -97,14 +109,18 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
 
     # Create bit stability/strengh vote figures
     # for num_votes in (11, 25, 49):
-    for num_votes in (49,):
+    for num_votes in (50,):
         # Try different amounts of max votes, but only as many as are in the actual data
         if num_votes > num_captures:
             # There aren't enough captures to have this many votes
+            print(f"Not doing the {num_votes}-capture bit stability")
             break
 
         print(f"Creating bit stability/strengh vote histogram figures ({num_votes} votes)")
         binary_votes = combine_captures_as_votes(num_votes, in_path, num_words)
+
+        votes_data_path = os.path.join(out_path, "Votes.npy")
+        np.save(votes_data_path, binary_votes, allow_pickle=False)
         
         # max_votes_num = np.max(binary_votes)
         max_votes_num = num_votes
@@ -114,8 +130,24 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
         ax.set_title("Histogram of power-up 1's")
         ax.set_xlabel("Times appeared as a 1")
         ax.set_ylabel("Bits")
-        ax.hist(binary_votes, max_votes_num + 1, align='mid')
+        # ax.hist(binary_votes, max_votes_num + 1, align='mid')
+        ax.hist(binary_votes, max_votes_num)
         f.savefig(os.path.join(out_path, f"Binary-votes-out-of-{num_votes}.png"))
+
+        vote_occurrences_path = os.path.join(out_path, f"Bit-Stability-{num_votes}-Bins.txt")
+        with open(vote_occurrences_path, "w") as f_out:
+            print("Bit stability vote occurrences:", file=f_out)
+            occ = np.bincount(binary_votes)
+            for i, n in enumerate(occ):
+                print(f"{i}: {n} bits = {percent(n, num_bits):3f}%", file=f_out)
+
+            print(file=f_out)
+
+            n_stable = occ[0] + occ[-1]
+            n_unstable = sum(occ[1:-1])
+            assert n_stable + n_unstable == num_bits, "should add up"
+            print(f"Number of stable bits = {n_stable} = {percent(n_stable, num_bits):.3f}%", file=f_out)
+            print(f"Number of unstable bits = {n_unstable} = {percent(n_unstable, num_bits):.3f}%", file=f_out)
 
 
 def run(input_dir: str, output_dir: str):
@@ -127,9 +159,9 @@ def run(input_dir: str, output_dir: str):
         print(f"{sys.argv[0]}: error: path \"{output_dir}\" is not a directory")
         return
 
-    num_captures = 3
+    # num_captures = 3
     # num_captures = 11
-    # num_captures = 49
+    num_captures = 50
     num_words = NUM_WORDS
 
     listing = list(os.listdir(input_dir))

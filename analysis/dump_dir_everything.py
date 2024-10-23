@@ -10,10 +10,14 @@ def file_load_captures(file_in: TextIO, num_captures: int, num_words: int) -> np
     result = np.empty((num_captures, num_words), dtype="uint16")
 
     for i in range(num_captures):
-        print(f"Reading capture {i+1}/{num_captures}")
+        #print(f"Reading capture {i+1}/{num_captures}")
         file_seek_next_data_dump(file_in)
         for j in range(num_words):
-            result[i, j] = file_read_next_hex4(file_in)
+            try:
+                result[i, j] = file_read_next_hex4(file_in)
+            except ValueError as e:
+                print(f"(error in capture #{i}, word #{j}) at file position #{file_in.tell()}")
+                raise e
 
     return result
 
@@ -23,54 +27,36 @@ def create_votes_np(captures: np.ndarray) -> np.ndarray:
     num_words = captures.shape[1]
     num_bits = num_words * BITS_PER_WORD
 
-    bit_votes_for_one = np.zeros(num_bits, dtype="uint8")
+    capture_votes = np.zeros((num_captures, num_bits), dtype="uint8")
 
-    # for b in range(BITS_PER_WORD):
-    #     mask_array = np.full(num_words, fill_value=(1 << b), dtype="uint16")
-    #     for c in range(num_captures):
-    #         x = np.bitwise_and(captures[c,:], mask_array)
-    #     for w in range(num_words):
-    #         bit_votes_for_one[b:(w * BITS_PER_WORD + b):BITS_PER_WORD] = x
+    shifts = np.tile(np.arange(BITS_PER_WORD)[::-1], reps=num_words)
 
-    for word_i in range(num_words):
-        if word_i and word_i % 10_000 == 0:
-            print(f"Word #{word_i}")
-        for c in range(num_captures):
-            word = captures[c, word_i]
-            # Log the "bit vote" for each bit of the word
-            for word_bit_i in range(BITS_PER_WORD):
-                # Test bit number 'bit_i' and increment a vote if it is set
-                if word & (1 << word_bit_i) != 0:
-                    bit_i = (word_i * BITS_PER_WORD) + word_bit_i
-                    bit_votes_for_one[bit_i] += 1
+    for c in range(num_captures):
+        #print(f"Combing capture {c + 1}/{num_captures}")
+        cap = captures[c].repeat(BITS_PER_WORD)
+        capture_votes[c] = (cap >> shifts) & 1
 
-    return bit_votes_for_one
+    return np.sum(capture_votes, axis=0)
 
 
 def create_puf_np(bit_votes_for_1: np.ndarray, threshold: int) -> np.ndarray:
+    "Take an array of each bit's number of votes for powering-up to a value of 1, and convert it to an array of (multi-bit) words"
     num_bits = bit_votes_for_1.shape[0]
     num_words = num_bits // BITS_PER_WORD
 
-    assert bit_votes_for_1.shape[0] == num_words * BITS_PER_WORD
+    bits = (bit_votes_for_1 > threshold).reshape((num_words, BITS_PER_WORD))
 
-    result = np.empty(num_words, dtype="uint16")
-    for i in range(num_bits):
-        b = i * BITS_PER_WORD
-        w = 0
-        for j in range(BITS_PER_WORD):
-            votes = bit_votes_for_1[b + j]
-            if votes > threshold:
-                w = w | (1 << j)
-        result[i] = w
+    # Reference: https://stackoverflow.com/questions/15505514/binary-numpy-array-to-list-of-integers
+    #return bits.dot(1 << np.arange(bits.shape[-1] - 1, -1, -1))
 
-    return result
+    return np.packbits(bits, bitorder="big").view(np.uint16).byteswap(inplace=True)
 
 
 def show_binary_image_from_data(ax, ndarray):
     '''A "binary image" is a black-and-white only 2D image (no grayscale) and this function displays one'''
     ax.set_xticks([])
     ax.set_yticks([])
-    # These 'if' tests are only needed because otherwise an all-white image shows up as all-black for some reason
+    # These 'if' tests below are only needed because otherwise an all-white image shows up as all-black for some reason
     # (thanks, matplotlib)
     if len(unique_arr := np.unique(ndarray)) == 1:
         if unique_arr[0] == 1:
@@ -95,7 +81,11 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
 
     print("Loading data")
     with open(in_path, "r") as hex_dump_in:
-        captures_data = file_load_captures(hex_dump_in, num_captures=num_captures, num_words=num_words)
+        try:
+            captures_data = file_load_captures(hex_dump_in, num_captures=num_captures, num_words=num_words)
+        except ValueError:
+            print("File has invalid data")
+            return
     
     print("Combining captures")
     captures_bit_votes = create_votes_np(captures_data)
@@ -109,6 +99,8 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
     hweights = np.empty(num_captures)
     for c in range(num_captures):
         hweights[c] = np.sum(hamming_weight_vec(captures_data[c]))
+    hweight_avg = float(np.average(hweights))
+    hweight_avg_p = percent(hweight_avg, num_bits)
         
     # Save Hamming weights to a new file
     print("Saving Hamming weights")
@@ -116,47 +108,7 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
     with open(hweights_file, "w") as hweights_file_out:
         for i, hw in enumerate(hweights):
             print(i, int(hw), percent(hw, num_bits), file=hweights_file_out)
-
-    # Create PUF file
-    print("Creating gold PUF")
-    gold_puf_fname1 = os.path.join(out_path, "Gold-PUF.txt")
-    gold_puf_fname2 = os.path.join(out_path, "Gold-PUF.npy")
-    gold_puf_num_captures = num_captures
-    # Force the number of captures for the gold PUF to be odd (by excluding the last one)
-    if gold_puf_num_captures % 2 == 0:
-        gold_puf_num_captures -= 1
-    gold_puf_data = create_puf_np(captures_bit_votes, (gold_puf_num_captures + 1) // 2)
-    np.save(gold_puf_fname2, gold_puf_data)
-
-    # Get gold PUF Hamming Weight (to add this info to the images below)
-    puf_hweight = np.sum(hamming_weight_vec(gold_puf_data))
-    puf_hweight_p = percent(puf_hweight, num_bits)
-
-    # Get Hamming Distance between PUF and the dumps
-    print("Calculating Hamming distances for each dump and the gold PUF")
-    hdistances = []
-    for i in range(num_captures):
-        hd = np.sum(hamming_weight_vec(np.bitwise_xor(captures_data[i], gold_puf_data)))
-        hdistances.append(hd)
-    # Save Hamming weights to a new file
-    print("Saving Hamming distances")
-    hdistances_file = os.path.join(out_path, "Hamming-distances.txt")
-    with open(hdistances_file, "w") as hdistances_file_out:
-        for i, d in enumerate(hdistances):
-            print(f"{i}: {d} bits = {percent(d, num_bits):.3f}%", file=hdistances_file_out)
-
-    # Create salt-and-pepper sample image from first few bits of the gold PUF 
-    for size in (64, 128, 256, 512):
-        print(f"Creating {size}x{size} salt-and-pepper image")
-        # Use the file instead of the loaded data because its easy to re-use the file_read_image function
-        with open(gold_puf_fname1, "r") as f_in:
-            img_data = file_read_image(f_in, size, size)
-        f = plt.figure()
-        ax = f.gca()
-        ax.set_title(f"Gold PUF {size}x{size}")
-        ax.set_xlabel(f"HW = {puf_hweight_p:.3f}%")
-        show_binary_image_from_data(ax, img_data)
-        f.savefig(os.path.join(out_path, f"Salt-and-pepper-{size}x{size}.png"))
+        print(f"Average Hamming weight = {hweight_avg} = {hweight_avg_p:.3f}%", file=hweights_file_out)
 
     # Create bit stability/strengh vote figures
     # for num_votes in (11, 25, 49):
@@ -199,6 +151,54 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
             print(f"Number of stable bits = {n_stable} = {percent(n_stable, num_bits):.3f}%", file=f_out)
             print(f"Number of unstable bits = {n_unstable} = {percent(n_unstable, num_bits):.3f}%", file=f_out)
 
+    # Create PUF file
+    print("Creating gold PUF")
+    gold_puf_fname1 = os.path.join(out_path, "Gold-PUF.txt")
+    gold_puf_fname2 = os.path.join(out_path, "Gold-PUF.npy")
+    gold_puf_num_captures = num_captures
+    # Force the number of captures for the gold PUF to be odd (by excluding the last one)
+    if gold_puf_num_captures % 2 == 0:
+        gold_puf_num_captures -= 1
+    gold_puf_data = create_puf_np(captures_bit_votes, (gold_puf_num_captures + 1) // 2)
+    # Save Hex dump file
+    with open(gold_puf_fname1, "w") as f_out:
+        file_write_words(f_out, gold_puf_data)
+    # Save numpy data file
+    np.save(gold_puf_fname2, gold_puf_data)
+
+    # Get gold PUF Hamming Weight (to add this info to the images below)
+    puf_hweight = np.sum(hamming_weight_vec(gold_puf_data))
+    puf_hweight_p = percent(puf_hweight, num_bits)
+
+    # Get Hamming Distance between PUF and the dumps
+    print("Calculating Hamming distances for each dump and the gold PUF")
+    hdistances = np.empty(num_captures)
+    for i in range(num_captures):
+        hd = np.sum(hamming_weight_vec(np.bitwise_xor(captures_data[i], gold_puf_data)))
+        hdistances[i] = hd
+    hdistances_avg = float(np.average(np.array(hdistances)))
+    hdistances_avg_p = percent(hdistances_avg, num_bits)
+    # Save Hamming weights to a new file
+    print("Saving Hamming distances")
+    hdistances_file = os.path.join(out_path, "Hamming-distances.txt")
+    with open(hdistances_file, "w") as hdistances_file_out:
+        for i, d in enumerate(hdistances):
+            print(f"{i}: {d} bits = {percent(d, num_bits):.3f}%", file=hdistances_file_out)
+        print(f"Average Hamming distance = {hdistances_avg} = {hdistances_avg_p:.3f}%", file=hdistances_file_out)
+
+    # Create salt-and-pepper sample image from first few bits of the gold PUF 
+    for size in (64, 128, 256, 512):
+        print(f"Creating {size}x{size} salt-and-pepper image")
+        # Use the file instead of the loaded data because its easy to re-use the file_read_image function
+        with open(gold_puf_fname1, "r") as f_in:
+            img_data = file_read_image(f_in, size, size)
+        f = plt.figure()
+        ax = f.gca()
+        ax.set_title(f"Gold PUF {size}x{size}")
+        ax.set_xlabel(f"HW = {puf_hweight_p:.3f}%")
+        show_binary_image_from_data(ax, img_data)
+        f.savefig(os.path.join(out_path, f"Salt-and-pepper-{size}x{size}.png"))
+
 
 def run(input_dir: str, output_dir: str):
     if not os.path.isdir(input_dir):
@@ -220,11 +220,15 @@ def run(input_dir: str, output_dir: str):
         # Log
         print(f"({i + 1}): Processing \"{in_fname}\"")
 
-        # Get input filename before the extension to use to automatically create the output folder name
-        in_fname_no_ext, _ = in_fname.rsplit('.', maxsplit=1)
-
         # Construct the string for the full input file path
         in_path = os.path.join(input_dir, in_fname)
+
+        if not os.path.isfile(in_path):
+            print(f"Skipping non-file {in_fname}")
+            continue
+        
+        # Get input filename before the extension to use to automatically create the output folder name
+        in_fname_no_ext, _ = in_fname.rsplit('.', maxsplit=1)
 
         if not os.path.isfile(in_path):
             continue

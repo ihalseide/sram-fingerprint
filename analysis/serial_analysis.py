@@ -1058,13 +1058,11 @@ def file_load_words(file_in, num_words: int) -> np.ndarray:
     return words
 
 
-def file_write_words(file_out, words):
-    if isinstance(file_out, str):
-        with open(file_out, 'w') as arg:
-            return file_write_words(arg, words)
-        
-    for w in words:
-        print(hex4(int(w)), file=file_out)
+def file_write_words(file_out: TextIO, words: Iterable[int]):
+    for i, w in enumerate(words):
+        if i and (i % 16 == 0):
+            print(file=file_out)
+        print(hex4(int(w)), end=" ", file=file_out)
 
 
 def file_load_trial_for_delay(file_name: str, delay_ms: float, max_count: int|None = None) -> np.ndarray:

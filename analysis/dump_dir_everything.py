@@ -22,12 +22,16 @@ def file_load_captures(file_in: TextIO, num_captures: int, num_words: int) -> np
 
 
 def create_votes_np(captures: np.ndarray) -> np.ndarray:
+    """Convert capture's memory dumps to bit array of votes for that bit being a 1"""
+
     num_captures = captures.shape[0]
     num_words = captures.shape[1]
     num_bits = num_words * BITS_PER_WORD
 
     capture_votes = np.zeros((num_captures, num_bits), dtype="uint8")
 
+    # Create a repeating series of bit shift amounts to avoid using a nested for loop
+    # (Which would iterate the range(0, BITS_PER_WORD) )
     shifts = np.tile(np.arange(BITS_PER_WORD)[::-1], reps=num_words) # note arange() is then reversed to get the correct bit-ordering
 
     for c in range(num_captures):

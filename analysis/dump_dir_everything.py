@@ -3,7 +3,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from serial_analysis import *
-from find_bit_strength import combine_captures_as_votes
 
 
 def file_load_captures(file_in: TextIO, num_captures: int, num_words: int) -> np.ndarray:
@@ -29,7 +28,7 @@ def create_votes_np(captures: np.ndarray) -> np.ndarray:
 
     capture_votes = np.zeros((num_captures, num_bits), dtype="uint8")
 
-    shifts = np.tile(np.arange(BITS_PER_WORD)[::-1], reps=num_words)
+    shifts = np.tile(np.arange(BITS_PER_WORD)[::-1], reps=num_words) # note arange() is then reversed to get the correct bit-ordering
 
     for c in range(num_captures):
         #print(f"Combing capture {c + 1}/{num_captures}")
@@ -44,6 +43,7 @@ def create_puf_np(bit_votes_for_1: np.ndarray, threshold: int) -> np.ndarray:
     num_bits = bit_votes_for_1.shape[0]
     num_words = num_bits // BITS_PER_WORD
 
+    # Reshape bit votes into an 2D array of N-bit rows
     bits = (bit_votes_for_1 > threshold).reshape((num_words, BITS_PER_WORD))
 
     # Reference: https://stackoverflow.com/questions/15505514/binary-numpy-array-to-list-of-integers
@@ -52,7 +52,7 @@ def create_puf_np(bit_votes_for_1: np.ndarray, threshold: int) -> np.ndarray:
     return np.packbits(bits, bitorder="big").view(np.uint16).byteswap(inplace=True)
 
 
-def show_binary_image_from_data(ax, ndarray):
+def show_binary_image_from_data(ax, ndarray, color0="black", color1="white"):
     '''A "binary image" is a black-and-white only 2D image (no grayscale) and this function displays one'''
     ax.set_xticks([])
     ax.set_yticks([])
@@ -60,12 +60,12 @@ def show_binary_image_from_data(ax, ndarray):
     # (thanks, matplotlib)
     if len(unique_arr := np.unique(ndarray)) == 1:
         if unique_arr[0] == 1:
-            ax.imshow(ndarray, matplotlib.colors.ListedColormap(['white']))
+            ax.imshow(ndarray, matplotlib.colors.ListedColormap([color1]))
         else:
-            ax.imshow(ndarray, matplotlib.colors.ListedColormap(['black']))
+            ax.imshow(ndarray, matplotlib.colors.ListedColormap([color0]))
     else:
         # ideally, this is the only branch we need (but it is not, see the above comment)
-        ax.imshow(ndarray, matplotlib.colors.ListedColormap(['black', 'white']), interpolation="nearest")
+        ax.imshow(ndarray, matplotlib.colors.ListedColormap([color0, color1]), interpolation="nearest")
 
 
 def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
@@ -112,7 +112,7 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
 
     # Create bit stability/strengh vote figures
     # for num_votes in (11, 25, 49):
-    for num_votes in (50,):
+    for num_votes in (49,):
         # Try different amounts of max votes, but only as many as are in the actual data
         if num_votes > num_captures:
             # There aren't enough captures to have this many votes
@@ -200,58 +200,17 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
         f.savefig(os.path.join(out_path, f"Salt-and-pepper-{size}x{size}.png"))
 
 
-def run(input_dir: str, output_dir: str):
-    if not os.path.isdir(input_dir):
-        print(f"{sys.argv[0]}: error: \"{input_dir}\" is not a directory")
-        return
-    
-    if not os.path.isdir(output_dir):
-        print(f"{sys.argv[0]}: error: path \"{output_dir}\" is not a directory")
-        return
-
-    # num_captures = 3
-    # num_captures = 11
-    num_captures = 50
-    num_words = NUM_WORDS
-
-    listing = list(os.listdir(input_dir))
-    i = 0
-    for in_fname in listing:
-        # Log
-        print(f"({i + 1}): Processing \"{in_fname}\"")
-
-        # Construct the string for the full input file path
-        in_path = os.path.join(input_dir, in_fname)
-
-        if not os.path.isfile(in_path):
-            print(f"Skipping non-file {in_fname}")
-            continue
-        
-        # Get input filename before the extension to use to automatically create the output folder name
-        in_fname_no_ext, _ = in_fname.rsplit('.', maxsplit=1)
-
-        if not os.path.isfile(in_path):
-            continue
-
-        if "binary" in in_fname:
-            print("Skipping 'binary' file")
-            continue
-
-        # Create a new folder to hold all of the results for processing this file
-        out_path = os.path.join(output_dir, in_fname_no_ext)
-        print(f"Will save output in directory \"{out_path}\"")
-        os.mkdir(out_path)
-
-        run1(in_path, out_path, num_captures, num_words)
-        i += 1
-
-
 def main():
-    if len(sys.argv) != 3:
-        print(f"usage: {sys.argv[0]} input-directory output-directory")
+    if len(sys.argv) < 3:
+        print(f"usage: {sys.argv[0]} input-dump-file output-directory [num-captures]")
         exit(1)
 
-    run(sys.argv[1], sys.argv[2])
+    num_captures = 50
+    if len(sys.argv) > 3:
+        num_captures = int(sys.argv[3])
+
+    os.mkdir(sys.argv[2])
+    run1(sys.argv[1], sys.argv[2], num_captures=num_captures, num_words=NUM_WORDS)
 
 
 if __name__ == '__main__':

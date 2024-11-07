@@ -139,6 +139,7 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
         # ax.hist(binary_votes, max_votes_num + 1, align='mid')
         ax.hist(captures_bit_votes, max_votes_num)
         f.savefig(os.path.join(out_path, f"Binary-votes-out-of-{num_votes}.png"))
+        plt.close()
 
         vote_occurrences_path = os.path.join(out_path, f"Bit-Stability-{num_votes}-Bins.txt")
         with open(vote_occurrences_path, "w") as f_out:
@@ -202,6 +203,7 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
         ax.set_xlabel(f"HW = {puf_hweight_p:.3f}%")
         show_binary_image_from_data(ax, img_data)
         f.savefig(os.path.join(out_path, f"Salt-and-pepper-{size}x{size}.png"))
+        plt.close()
 
 
 def main():

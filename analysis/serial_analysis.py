@@ -302,9 +302,18 @@ def remanence_experiment_get_images(dump_file, image_width: int, image_height: i
     return delay_image_pairs
 
 
-def file_seek_next_delay_line(file_in) -> str | None:
+def file_load_delays(dump_file: TextIO, num_captures: int) -> np.ndarray:
+    '''Collect `num_captures` delay values from a data dump file (this skips over any data dumps in-between).'''
+    results = np.empty(num_captures)
+    for i in range(num_captures):
+        line = file_seek_next_delay_line(dump_file)
+        results[i] = float(line)
+    return results
+
+
+def file_seek_next_delay_line(file_in: TextIO) -> str | None:
     pattern_comp = re.compile(r"delay of (\d+\.\d+)ms", re.IGNORECASE)
-    while line := file_in.readline().decode('ascii'):
+    while line := file_in.readline():
         if match := re.search(pattern_comp, line):
             return match.group(1)
     return None
@@ -516,18 +525,15 @@ def file_find_bit_flips_v2(original_file, file_in, num_words: int, word_flip=Tru
     return bit_flip_times
 
 
-def file_find_bit_flips_count(original_file, file_in, num_words: int) -> dict:
+def file_find_bit_flips_count(original_file: TextIO, file_in: TextIO, num_words: int) -> dict:
     '''
-    Find how many bits flip for each remanence time 
+    Find how many bits flip from the original data for each dump taken at remanence time delay.
     '''
-
-    # Allow the first 2 arguments to be a string or already-opened file
+    # DO NOT allow the first 2 arguments to be a string or already-opened file
     if isinstance(original_file, str):
-        with open(original_file, 'rb') as arg:
-            return file_find_bit_flips_count(arg, file_in, num_words)
+        raise TypeError("`original_file` given as a string instead of an open file")
     if isinstance(file_in, str):
-        with open(file_in, "rb") as arg:
-            return file_find_bit_flips_count(original_file, arg, num_words)
+        raise TypeError("`file_in` given as a string instead of an open file")
 
     original_words = file_read_hex4_dump_as_words(original_file, num_words)
 
@@ -561,6 +567,45 @@ def file_find_bit_flips_count(original_file, file_in, num_words: int) -> dict:
             bit_flips[word_index] |= new_flips
             # Add this word's flip count to the total flip count for this 't' time
             flip_counts[t] += hamming_weight(new_flips)
+
+    return flip_counts
+
+
+def file_find_bit_flips_count_with_natural_bits(original_file: TextIO, natural_file: TextIO, file_in: TextIO, num_words: int) -> dict:
+    '''
+    Find how many bits flip from the original data for each dump taken at remanence time delay.
+    '''
+
+    original_words = file_read_hex4_dump_as_words(original_file, num_words)
+    natural_mask = file_read_hex4_dump_as_words(natural_file, num_words)
+
+    # Array of words to record if the first time a bit flipped has been recorded
+    # (a 0 bit means not seen to flip yet, and a 1 bit means that it has previously flipped)
+    bit_flips = np.zeros(shape=num_words, dtype="uint16")
+
+    # Result to map a time to the number of new bit flips at that time
+    flip_counts: dict[float, int] = dict()
+
+    # Iterate over all data dumps from the file...
+    while (delay_str := file_seek_next_delay_line(file_in)) is not None:
+        # Save the delay for this dump index
+        t = float(delay_str)
+        assert t >= 0
+        flip_counts[t] = 0
+        
+        file_seek_next_data_dump(file_in)
+        data_words = file_read_hex4_dump_as_words(file_in, num_words)
+
+        # check each new dump's word's bits
+        for i, word in enumerate(data_words):
+            # Set 1s at bit flips for natural bits that are newly flipped for this 't' time
+            flip_word = (word ^ original_words[i]) & (~(bit_flips[i])) & (~natural_mask[i])
+
+            # Record these bits as flipped for next time
+            bit_flips[i] |= flip_word
+
+            # Add this word's flip count to the total flip count for this 't' time
+            flip_counts[t] += hamming_weight(flip_word)
 
     return flip_counts
 
@@ -1072,3 +1117,70 @@ def file_load_trial_for_delay(file_name: str, delay_ms: float, max_count: int|No
         if max_count is not None:
             num_words = min(num_words, max_count)
         return file_load_words(file_in, num_words)
+    
+
+def file_load_capture(file_in: TextIO, num_words: int) -> np.ndarray:
+    """Load one data dump into a numpy array"""
+    result = np.empty(num_words, dtype="uint16")
+
+    for j in range(num_words):
+        try:
+            result[j] = file_read_next_hex4(file_in)
+        except ValueError as e:
+            print(f"(error in word #{j}) at file position #{file_in.tell()}")
+            raise e
+
+    return result
+    
+
+def file_load_captures(file_in: TextIO, num_captures: int, num_words: int) -> np.ndarray:
+    """Load multiple data dumps of the same size at once, into a numpy array.
+    Creates a 2D array of memory values, indexed by capture index and then by word address"""
+    result = np.empty((num_captures, num_words), dtype="uint16")
+
+    for i in range(num_captures):
+        #print(f"Reading capture {i+1}/{num_captures}")
+        file_seek_next_data_dump(file_in)
+        for j in range(num_words):
+            try:
+                result[i, j] = file_read_next_hex4(file_in)
+            except ValueError as e:
+                print(f"(error in capture #{i}, word #{j}) at file position #{file_in.tell()}")
+                raise e
+
+    return result
+
+
+def create_votes_np(captures: np.ndarray) -> np.ndarray:
+    """Convert capture's memory dumps to bit array of votes for that bit being a 1"""
+
+    num_captures = captures.shape[0]
+    num_words = captures.shape[1]
+    num_bits = num_words * BITS_PER_WORD
+
+    capture_votes = np.zeros((num_captures, num_bits), dtype="uint8")
+
+    # Create a repeating series of bit shift amounts to avoid using a nested for loop
+    # (Which would iterate the range(0, BITS_PER_WORD) )
+    shifts = np.tile(np.arange(BITS_PER_WORD)[::-1], reps=num_words) # note arange() is then reversed to get the correct bit-ordering
+
+    for c in range(num_captures):
+        #print(f"Combing capture {c + 1}/{num_captures}")
+        cap = captures[c].repeat(BITS_PER_WORD)
+        capture_votes[c] = (cap >> shifts) & 1
+
+    return np.sum(capture_votes, axis=0)
+
+
+def create_puf_np(bit_votes_for_1: np.ndarray, threshold: int) -> np.ndarray:
+    "Take an array of each bit's number of votes for powering-up to a value of 1, and convert it to an array of (multi-bit) words"
+    num_bits = bit_votes_for_1.shape[0]
+    num_words = num_bits // BITS_PER_WORD
+
+    # Reshape bit votes into an 2D array of N-bit rows
+    bits = (bit_votes_for_1 > threshold).reshape((num_words, BITS_PER_WORD))
+
+    # Reference: https://stackoverflow.com/questions/15505514/binary-numpy-array-to-list-of-integers
+    #return bits.dot(1 << np.arange(bits.shape[-1] - 1, -1, -1))
+
+    return np.packbits(bits, bitorder="big").view(np.uint16).byteswap(inplace=True)

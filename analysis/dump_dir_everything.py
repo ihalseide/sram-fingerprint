@@ -5,57 +5,6 @@ import matplotlib.pyplot as plt
 from serial_analysis import *
 
 
-def file_load_captures(file_in: TextIO, num_captures: int, num_words: int) -> np.ndarray:
-    result = np.empty((num_captures, num_words), dtype="uint16")
-
-    for i in range(num_captures):
-        #print(f"Reading capture {i+1}/{num_captures}")
-        file_seek_next_data_dump(file_in)
-        for j in range(num_words):
-            try:
-                result[i, j] = file_read_next_hex4(file_in)
-            except ValueError as e:
-                print(f"(error in capture #{i}, word #{j}) at file position #{file_in.tell()}")
-                raise e
-
-    return result
-
-
-def create_votes_np(captures: np.ndarray) -> np.ndarray:
-    """Convert capture's memory dumps to bit array of votes for that bit being a 1"""
-
-    num_captures = captures.shape[0]
-    num_words = captures.shape[1]
-    num_bits = num_words * BITS_PER_WORD
-
-    capture_votes = np.zeros((num_captures, num_bits), dtype="uint8")
-
-    # Create a repeating series of bit shift amounts to avoid using a nested for loop
-    # (Which would iterate the range(0, BITS_PER_WORD) )
-    shifts = np.tile(np.arange(BITS_PER_WORD)[::-1], reps=num_words) # note arange() is then reversed to get the correct bit-ordering
-
-    for c in range(num_captures):
-        #print(f"Combing capture {c + 1}/{num_captures}")
-        cap = captures[c].repeat(BITS_PER_WORD)
-        capture_votes[c] = (cap >> shifts) & 1
-
-    return np.sum(capture_votes, axis=0)
-
-
-def create_puf_np(bit_votes_for_1: np.ndarray, threshold: int) -> np.ndarray:
-    "Take an array of each bit's number of votes for powering-up to a value of 1, and convert it to an array of (multi-bit) words"
-    num_bits = bit_votes_for_1.shape[0]
-    num_words = num_bits // BITS_PER_WORD
-
-    # Reshape bit votes into an 2D array of N-bit rows
-    bits = (bit_votes_for_1 > threshold).reshape((num_words, BITS_PER_WORD))
-
-    # Reference: https://stackoverflow.com/questions/15505514/binary-numpy-array-to-list-of-integers
-    #return bits.dot(1 << np.arange(bits.shape[-1] - 1, -1, -1))
-
-    return np.packbits(bits, bitorder="big").view(np.uint16).byteswap(inplace=True)
-
-
 def show_binary_image_from_data(ax, ndarray, color0="black", color1="white"):
     '''A "binary image" is a black-and-white only 2D image (no grayscale) and this function displays one'''
     ax.set_xticks([])
@@ -114,9 +63,9 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
             print(i, int(hw), percent(hw, num_bits), file=hweights_file_out)
         print(f"Average Hamming weight = {hweight_avg} = {hweight_avg_p:.3f}%", file=hweights_file_out)
 
-    # Create bit stability/strengh vote figures
+    # Create bit stability/strength vote figures
     # for num_votes in (11, 25, 49):
-    for num_votes in (49,):
+    for num_votes in (50,):
         # Try different amounts of max votes, but only as many as are in the actual data
         if num_votes > num_captures:
             # There aren't enough captures to have this many votes
@@ -220,4 +169,48 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    if len(sys.argv) != 1:
+        main()
+    else:
+        paths = [
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\0C-30s-50dumps.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\50C-30s-50dumps-2024.10.24.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\2024.10.22-normal-30s-50dumps.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\30C-60s-25dumps-2024.10.31.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\30C-60s-50dumps-2024.11.01.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\50C-30s-50dumps-2024.10.21.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\RT-30s-50dumps-2024.10.22.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\0C-30s-50dumps-2024.10.23.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\0C-240s-50dumps-2024.10.25.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\30C-60s-50dumps-2024.11.01.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\50C-30s-50dumps-2024.10.22.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\RT-30s-50dumps-2024.10.22.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\0C-30s-50dumps-2024.10.23.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\0C-240s-50dumps-2024.10.25.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\30C-30s-24dumps-2024.10.31.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\50C-30s-50dumps-2024.10.24.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\RT-30s-50dumps-2022.10.22.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\0C-30s-50dumps.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\0C-240s-50dumps-2024.10.25.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\50C-30s-50dumps-2024.10.21.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\RT-30s-50dumps-2024.10.21.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\0C-30s-50dumps-2024.10.23.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\RT_maybe-30s-50dumps-2024.10.22.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\0C-30s-50dumps-2024.10.23.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\0C-240s-50dumps-2024.10.25.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\50C-30s-50dumps-2024.10.22.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\0C-240s-50dumps.txt",
+            #r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-LP-1\0C-240s-50dumps-2024.11.01.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\30C-30s-50dumps-2024.11.05.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\30C-30s-50dumps-2024.11.05.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\30C-60s-50dumps-2024.11.05.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\30C-60s-50dumps-2024.11.05.txt",
+            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\50C-60s-50dumps-2024.11.08.txt",
+            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-LP-1\50C-60s-50dumps-2024.11.08.txt",
+        ]
+        for i, p in enumerate(paths):
+            print(f"[{i+1}/{len(paths)}]: {p}")
+            p2 = p + "-results"
+            if not os.path.isdir(p2):
+                os.mkdir(p2)
+            run1(p, p2, num_captures=50, num_words=NUM_WORDS)

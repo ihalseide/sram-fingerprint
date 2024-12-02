@@ -32,19 +32,38 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
     # create numpy vectorized function for later
     hamming_weight_vec = np.vectorize(hamming_weight)
 
+    # Check if pre-loaded captures numpy file already exists
+    captures_npy_file_exists = False
+    for reduced_captures_num in range(num_captures, 5, -1):
+        captures_data_file_name = os.path.join(out_path, f"Captures-{reduced_captures_num}.npy")
+        captures_npy_file_exists = os.path.isfile(captures_data_file_name)
+        if captures_npy_file_exists:
+            break
+
     print("Loading data")
-    with open(in_path, "r") as hex_dump_in:
-        try:
-            captures_data = file_load_captures(hex_dump_in, num_captures=num_captures, num_words=num_words)
-        except ValueError:
-            print("File has invalid data")
-            return
+    if captures_npy_file_exists:
+        print("Found numpy data file to load instead")
+        captures_data = np.load(captures_data_file_name)
+    else:
+        with open(in_path, "r") as hex_dump_in:
+            try:
+                captures_data = file_load_captures_fallback(hex_dump_in, num_captures=num_captures, num_words=num_words)
+            except ValueError:
+                print("File has invalid data")
+                return
+        
+    loaded_num_captures = captures_data.shape[0]
+    if loaded_num_captures != num_captures:
+        print(f"NOTE: only able to load {loaded_num_captures}/{num_captures} captures!")
+        print(f"Continuing with {loaded_num_captures} captures...")
+        num_captures = loaded_num_captures
     
     print("Combining captures")
     captures_bit_votes = create_votes_np(captures_data)
 
-    captures_data_file_name = os.path.join(out_path, f"Captures-{num_captures}.npy")
-    np.save(captures_data_file_name, captures_data, allow_pickle=False)
+    # Save captures file
+    if not captures_npy_file_exists:
+        np.save(captures_data_file_name, captures_data, allow_pickle=False)
 
     # Create file with list of Hamming Weights for each dump...
     # Get each dump's Hamming weight.
@@ -65,21 +84,22 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
 
     # Create bit stability/strength vote figures
     # for num_votes in (11, 25, 49):
-    for num_votes in (50,):
+    for num_votes in np.unique([num_captures, 11, 20, 50]):
         # Try different amounts of max votes, but only as many as are in the actual data
         if num_votes > num_captures:
             # There aren't enough captures to have this many votes
             print(f"Not doing the {num_votes}-capture bit stability")
-            break
+            continue
 
         print(f"Creating bit stability/strengh vote histogram figures ({num_votes} votes)")
 
-        votes_data_path = os.path.join(out_path, "Votes.npy")
+        votes_data_path = os.path.join(out_path, f"Votes-{num_votes}.npy")
         np.save(votes_data_path, captures_bit_votes, allow_pickle=False)
         
         # max_votes_num = np.max(binary_votes)
         max_votes_num = num_votes
 
+        # Make linear plot
         f = plt.figure()
         ax = f.gca()
         ax.set_title("Histogram of power-up 1's")
@@ -90,6 +110,41 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
         f.savefig(os.path.join(out_path, f"Binary-votes-out-of-{num_votes}.png"))
         plt.close()
 
+        # Make log plot
+        f = plt.figure()
+        ax = f.gca()
+        ax.set_title("Histogram of power-up 1's")
+        ax.set_xlabel("Times appeared as a 1")
+        ax.set_ylabel("Bits")
+        ax.set_yscale('log')
+        # ax.hist(binary_votes, max_votes_num + 1, align='mid')
+        ax.hist(captures_bit_votes, max_votes_num)
+        f.savefig(os.path.join(out_path, f"Binary-votes-out-of-{num_votes}-log.png"))
+        plt.close()
+
+        # Make dual axis log plot
+        middle_index = num_votes // 2
+        # print(f"middle index is {middle_index}")
+        # captures_bit_votes_hist, caps_edges = np.histogram(captures_bit_votes, bins=num_votes)
+        captures_bit_votes_0 = captures_bit_votes[np.where(captures_bit_votes < middle_index)]
+        captures_bit_votes_1 = captures_bit_votes[np.where(captures_bit_votes >= middle_index)]
+        ax1 = plt.subplot(211)
+        ax1.set_xlim(0, middle_index)
+        ax1.invert_xaxis()    
+        ax1.set_title("Histogram of power-up 1's")
+        ax1.set_ylabel("0 Bits (log)")
+        ax1.set_yscale('log')
+        ax1.hist(captures_bit_votes_0, num_votes//2, color="r")
+        ax2 = plt.subplot(212, sharey=ax1)
+        ax2.set_xlim(middle_index, num_votes)
+        ax2.set_ylabel("1 Bits (log)")
+        ax2.set_yscale('log')
+        ax2.hist(captures_bit_votes_1, num_votes//2, color="b")
+        # ax2.invert_yaxis()
+        plt.savefig(os.path.join(out_path, f"Binary-votes-out-of-{num_votes}-dual.png"))
+        plt.close()
+
+        # Save actual numerical values to a text file
         vote_occurrences_path = os.path.join(out_path, f"Bit-Stability-{num_votes}-Bins.txt")
         with open(vote_occurrences_path, "w") as f_out:
             print("Bit stability vote occurrences:", file=f_out)
@@ -108,7 +163,7 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
     # Create PUF file
     print("Creating gold PUF")
     gold_puf_fname1 = os.path.join(out_path, "Gold-PUF.txt")
-    gold_puf_fname2 = os.path.join(out_path, "Gold-PUF.npy")
+    gold_puf_npy_fname = os.path.join(out_path, "Gold-PUF.npy")
     gold_puf_num_captures = num_captures
     # Force the number of captures for the gold PUF to be odd (by excluding the last one)
     if gold_puf_num_captures % 2 == 0:
@@ -118,7 +173,7 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
     with open(gold_puf_fname1, "w") as f_out:
         file_write_words(f_out, gold_puf_data)
     # Save numpy data file
-    np.save(gold_puf_fname2, gold_puf_data)
+    np.save(gold_puf_npy_fname, gold_puf_data)
 
     # Get gold PUF Hamming Weight (to add this info to the images below)
     puf_hweight = np.sum(hamming_weight_vec(gold_puf_data))
@@ -188,7 +243,7 @@ if __name__ == '__main__':
             # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\0C-30s-50dumps-2024.10.23.txt",
             # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\0C-240s-50dumps-2024.10.25.txt",
             # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\30C-30s-24dumps-2024.10.31.txt",
-            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\50C-30s-50dumps-2024.10.24.txt",
+            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\50C-30s-50dumps-2024.10.24.txt",
             # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\RT-30s-50dumps-2022.10.22.txt",
             # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\0C-30s-50dumps.txt",
             # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\0C-240s-50dumps-2024.10.25.txt",
@@ -200,14 +255,32 @@ if __name__ == '__main__':
             # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\0C-240s-50dumps-2024.10.25.txt",
             # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\50C-30s-50dumps-2024.10.22.txt",
             # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\0C-240s-50dumps.txt",
-            #r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-LP-1\0C-240s-50dumps-2024.11.01.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-LP-1\0C-240s-50dumps-2024.11.01.txt",
             # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\30C-30s-50dumps-2024.11.05.txt",
             # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\30C-30s-50dumps-2024.11.05.txt",
             # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\30C-60s-50dumps-2024.11.05.txt",
             # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\30C-60s-50dumps-2024.11.05.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\50C-60s-50dumps-2024.11.08.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-LP-1\50C-60s-50dumps-2024.11.08.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\50C-60s-50dumps-2024.11.08.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-LP-1\50C-60s-50dumps-2024.11.08.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-LP-2\RT-30s-50dumps.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1-rad\RT-15s-20dumps.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-5\RT-30s-50dumps.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-4\RT-60s-50dumps.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-rad\RT-30s-20dumps.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1\50_captures_15_second_delay.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-2\50_captures_15_second_delay.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-2\50_captures_15_second_delay_cap.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-2\50_captures_15_second_delay.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-2\50_captures_15_second_delay_cap.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-3\50_captures_15_second_delay.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-3\50_captures_15_second_delay_cap.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-4\50_captures_15_second_delay.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-4\50_captures_15_second_delay_cap.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay_cap.txt",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay_inductor.txt",
         ]
+
         for i, p in enumerate(paths):
             print(f"[{i+1}/{len(paths)}]: {p}")
             p2 = p + "-results"

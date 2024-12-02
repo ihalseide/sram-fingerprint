@@ -632,8 +632,8 @@ def bit_diff_files(file_name_a: str, file_name_b: str, num_words: int=NUM_WORDS,
     if do_print:
         print(f"Comparing bits from data files '{file_name_a}' and '{file_name_b}'...")
 
-    with open(file_name_a, "rb") as file_a:
-        with open(file_name_b, "rb") as file_b:
+    with open(file_name_a, "r") as file_a:
+        with open(file_name_b, "r") as file_b:
             a_hw, b_hw, diff = bit_diff_within_files(file_a, file_b, num_words)
 
     if do_print:
@@ -1149,6 +1149,32 @@ def file_load_captures(file_in: TextIO, num_captures: int, num_words: int) -> np
                 raise e
 
     return result
+
+
+def file_load_captures_fallback(file_in: TextIO, num_captures: int, num_words: int) -> np.ndarray:
+    """Load multiple data dumps of the same size at once, into a numpy array.
+    Creates a 2D array of memory values, indexed by capture index and then by word address.
+    Allows loading less than the given `num_captures` number of captures."""
+
+    result = np.empty((num_captures, num_words), dtype="uint16")
+
+    capture_dest_index = 0
+    for captures_source_index in range(num_captures):
+        #print(f"Reading capture {i+1}/{num_captures}")
+        file_seek_next_data_dump(file_in)
+        for word_index in range(num_words):
+            try:
+                result[capture_dest_index, word_index] = file_read_next_hex4(file_in)
+            except ValueError:
+                # Break out of reading words for this capture and make the next one override this index
+                print(f"(error in capture #{captures_source_index}, word #{word_index}) at file position #{file_in.tell()}")
+                capture_dest_index -= 1
+                break
+            
+        capture_dest_index += 1
+
+    # Trim off the last extra captures (if any) that were skipped
+    return result[:capture_dest_index, :]
 
 
 def create_votes_np(captures: np.ndarray) -> np.ndarray:

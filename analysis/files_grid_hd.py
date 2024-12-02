@@ -3,7 +3,7 @@ Get the Hamming Distance between multiple files.
 '''
 
 
-import sys, os, math
+import sys, os, math, re
 import numpy as np
 from serial_analysis import *
 
@@ -32,6 +32,18 @@ def ask_file_list() -> list[str]:
 def main():
     file_list = sys.argv[1:]
 
+    file_list = [
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\RT_maybe-30s-50dumps-2024.10.22.txt-results\Gold-PUF.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\RT-30s-50dumps-2024.10.21.txt-results\Gold-PUF.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\RT-30s-50dumps-2022.10.22.txt-results\Gold-PUF.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-Z\RT-30s-50dumps.txt-results\Gold-PUF.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1-rad\RT-15s-20dumps.txt-results\Gold-PUF.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\2024.10.22-normal-30s-50dumps.txt-results\Gold-PUF.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-rad\RT-30s-20dumps.txt-results\Gold-PUF.txt",
+    ]
+
     if not file_list:
         file_list = ask_file_list()
 
@@ -54,11 +66,20 @@ def file_list_diff_print(num_words, file_list: list[str]) -> None:
         # Only compare this element to elements after this one, because order doesn't matter.
         # I.E. HD(a, b) == HD(b, a)
         for path_b in file_list[i + 1:]:
-            print(f"{n + 1}: '{path_a}' (X) '{path_b}' = ", end='', flush=True)
+            path_a_short = shorten(path_a)
+            path_b_short = shorten(path_b)
+            print(f"{n + 1}: '{path_a_short}' (X) '{path_b_short}' = ", end='', flush=True)
             diff = bit_diff_files(path_a, path_b, num_words, do_print=False)
             p = percent(diff, num_words * BITS_PER_WORD)
             print(f"{p:.3f}%", flush=True)
             n += 1
+
+
+def shorten(path: str) -> str:
+    m = re.search(r"(\\[^\\]*-[^\\]*nm-[^\\]*)", path)
+    if not m:
+        raise ValueError()
+    return m.group(0)
 
 
 if __name__ == '__main__':

@@ -1177,6 +1177,13 @@ def file_load_captures_fallback(file_in: TextIO, num_captures: int, num_words: i
     return result[:capture_dest_index, :]
 
 
+def words_to_bits_np(words: np.ndarray) -> np.ndarray:
+    num_words = words.shape[0] 
+    result = np.zeros(num_words * BITS_PER_WORD)
+    shifts = np.tile(np.arange(BITS_PER_WORD)[::-1], reps=num_words) # note arange() is reversed to get the correct bit-ordering
+    x = words.repeat(BITS_PER_WORD)
+    return (x >> shifts) & 1
+
 def create_votes_np(captures: np.ndarray) -> np.ndarray:
     """Convert capture's memory dumps to bit array of votes for that bit being a 1"""
 
@@ -1188,7 +1195,7 @@ def create_votes_np(captures: np.ndarray) -> np.ndarray:
 
     # Create a repeating series of bit shift amounts to avoid using a nested for loop
     # (Which would iterate the range(0, BITS_PER_WORD) )
-    shifts = np.tile(np.arange(BITS_PER_WORD)[::-1], reps=num_words) # note arange() is then reversed to get the correct bit-ordering
+    shifts = np.tile(np.arange(BITS_PER_WORD)[::-1], reps=num_words) # note arange() is reversed to get the correct bit-ordering
 
     for c in range(num_captures):
         #print(f"Combing capture {c + 1}/{num_captures}")

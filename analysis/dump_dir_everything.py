@@ -1,8 +1,14 @@
-import os, sys, matplotlib
+import os, sys, random
+from timeit import default_timer as timer
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 
 from serial_analysis import *
+
+
+# Convert Hamming Weight function to numpy vectorized function for later
+hw_vec_fn = np.vectorize(hamming_weight)
 
 
 def show_binary_image_from_data(ax, ndarray, color0="black", color1="white"):
@@ -21,7 +27,34 @@ def show_binary_image_from_data(ax, ndarray, color0="black", color1="white"):
         ax.imshow(ndarray, matplotlib.colors.ListedColormap([color0, color1]), interpolation="nearest")
 
 
-def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
+def create_salt_and_pepper_fig(file_path: str, puf_data_words: np.ndarray, width: int, height: int, title: str, start_word_address: int):
+    print(f"Creating {width}x{height} salt & pepper image \"{title}\"")
+    a0 = start_word_address * BITS_PER_WORD
+    bit_count = width * height
+    puf_data_bits = words_to_bits_np(puf_data_words)
+    img_data = puf_data_bits[a0 : a0 + bit_count].reshape((width, height))
+    hw = np.sum(hw_vec_fn(img_data))
+    f, ax = plt.subplots()
+    ax.set_title(title)
+    ax.set_xlabel(f"HW = {percent(hw, bit_count):.3f}%")
+    show_binary_image_from_data(ax, img_data)
+    plt.savefig(file_path)
+    plt.close()
+
+
+def create_heatmap_fig(file_path: str, bit_vote_counts: np.ndarray, width: int, height: int, title: str, start_word_address: int):
+    print(f"Creating {width}x{height} bit bias heatmap image \"{title}\"")
+    a0 = start_word_address * BITS_PER_WORD
+    bit_count = width * height
+    img = np.reshape(bit_vote_counts[a0 : a0 + bit_count], (width, height))
+    plt.imshow(img, "Blues")
+    plt.gca().set_title(title)
+    plt.colorbar(label='Bit vote count (normalized)') 
+    plt.savefig(file_path)
+    plt.close()
+
+
+def run1(in_path: str, out_path: str, num_captures: int, num_words: int, word_address_offset: int):
     '''Process one multi-dump input file and generate the relevant report files into the out_path directory'''
 
     if not os.path.isfile(in_path):
@@ -33,8 +66,14 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
 
     num_bits = num_words * BITS_PER_WORD
 
-    # create numpy vectorized function for later
-    hamming_weight_vec = np.vectorize(hamming_weight)
+    # Extract chip name from file path
+    name_match = re.search(r"(\w+)-([0-9a-z]+)nm-([0-9a-z]+)", in_path, re.IGNORECASE)
+    if name_match is None:
+        raise ValueError("Could not find the chip name in file path")
+    name_whole = name_match.group(0)
+    name_man = name_match.group(1)
+    name_nm = name_match.group(2)
+    name_num = name_match.group(3)
 
     # Check if pre-loaded captures numpy file already exists
     captures_npy_file_exists = False
@@ -74,7 +113,7 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
     print(f"Reading Hamming weights for each dump ({num_captures} of them)")
     hweights = np.empty(num_captures)
     for c in range(num_captures):
-        hweights[c] = np.sum(hamming_weight_vec(captures_data[c]))
+        hweights[c] = np.sum(hw_vec_fn(captures_data[c]))
     hweight_avg = float(np.average(hweights))
     hweight_avg_p = percent(hweight_avg, num_bits)
         
@@ -165,29 +204,32 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
             print(f"Number of unstable bits = {n_unstable} = {percent(n_unstable, num_bits):.3f}%", file=f_out)
 
     # Create PUF file
-    print("Creating gold PUF")
     gold_puf_fname1 = os.path.join(out_path, "Gold-PUF.txt")
     gold_puf_npy_fname = os.path.join(out_path, "Gold-PUF.npy")
     gold_puf_num_captures = num_captures
-    # Force the number of captures for the gold PUF to be odd (by excluding the last one)
-    if gold_puf_num_captures % 2 == 0:
-        gold_puf_num_captures -= 1
-    gold_puf_data = create_puf_np(captures_bit_votes, (gold_puf_num_captures + 1) // 2)
-    # Save Hex dump file
-    with open(gold_puf_fname1, "w") as f_out:
-        file_write_words(f_out, gold_puf_data)
-    # Save numpy data file
-    np.save(gold_puf_npy_fname, gold_puf_data)
+    if os.path.isfile(gold_puf_fname1):
+        gold_puf_data = np.load(gold_puf_npy_fname)
+    else:
+        print("Creating gold PUF")
+        # Force the number of captures for the gold PUF to be odd (by excluding the last one)
+        if gold_puf_num_captures % 2 == 0:
+            gold_puf_num_captures -= 1
+        gold_puf_data = create_puf_np(captures_bit_votes, (gold_puf_num_captures + 1) // 2)
+        # Save Hex dump file
+        with open(gold_puf_fname1, "w") as f_out:
+            file_write_words(f_out, gold_puf_data)
+        # Save numpy data file
+        np.save(gold_puf_npy_fname, gold_puf_data)
 
     # Get gold PUF Hamming Weight (to add this info to the images below)
-    puf_hweight = np.sum(hamming_weight_vec(gold_puf_data))
+    puf_hweight = np.sum(hw_vec_fn(gold_puf_data))
     puf_hweight_p = percent(puf_hweight, num_bits)
 
     # Get Hamming Distance between PUF and the dumps
     print("Calculating Hamming distances for each dump and the gold PUF")
     hdistances = np.empty(num_captures)
     for i in range(num_captures):
-        hd = np.sum(hamming_weight_vec(np.bitwise_xor(captures_data[i], gold_puf_data)))
+        hd = np.sum(hw_vec_fn(np.bitwise_xor(captures_data[i], gold_puf_data)))
         hdistances[i] = hd
     hdistances_avg = float(np.average(np.array(hdistances)))
     hdistances_avg_p = percent(hdistances_avg, num_bits)
@@ -199,19 +241,17 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
             print(f"{i}: {d} bits = {percent(d, num_bits):.3f}%", file=hdistances_file_out)
         print(f"Average Hamming distance = {hdistances_avg} = {hdistances_avg_p:.3f}%", file=hdistances_file_out)
 
-    # Create salt-and-pepper sample image from first few bits of the gold PUF 
-    for size in (64, 128, 256, 512):
-        print(f"Creating {size}x{size} salt-and-pepper image")
-        # Use the file instead of the loaded data because its easy to re-use the file_read_image function
-        with open(gold_puf_fname1, "r") as f_in:
-            img_data = file_read_image(f_in, size, size)
-        f = plt.figure()
-        ax = f.gca()
-        ax.set_title(f"Gold PUF {size}x{size}")
-        ax.set_xlabel(f"HW = {puf_hweight_p:.3f}%")
-        show_binary_image_from_data(ax, img_data)
-        f.savefig(os.path.join(out_path, f"Salt-and-pepper-{size}x{size}.png"))
-        plt.close()
+    # Create different sample images from the gold PUF
+    sizes = (64, 128, 256, 512, 1024)
+    for size in sizes:
+        for offset in (0, word_address_offset):
+            offset_str = f"0x{offset:X}"
+            # "Salt and pepper" image
+            s_and_p_path = os.path.join(out_path, f"Salt-and-pepper-{size}x{size}-at-{offset_str}.png")
+            create_salt_and_pepper_fig(s_and_p_path, gold_puf_data, size, size, f"{name_whole} Gold PUF {size}x{size} at {offset_str}", offset)
+            # Heatmap image
+            heatmap_path = os.path.join(out_path, f"Heatmap-{size}x{size}-at-{offset_str}.png")
+            create_heatmap_fig(heatmap_path, captures_bit_votes, size, size, f"{name_whole} Bit State Heatmap at {offset_str}", offset)
 
 
 def main():
@@ -286,9 +326,22 @@ if __name__ == '__main__':
             r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay_cap.txt",
         ]
 
+        max_img_bit_size = 1024
+        random_offset = random.randint(0, NUM_WORDS - (max_img_bit_size**2)//BITS_PER_WORD)
+        print(f"Random offset = 0x{random_offset:X}")
+
+        start1 = timer()
         for i, p in enumerate(paths):
             print(f"[{i+1}/{len(paths)}]: {p}")
             p2 = p + "-results"
             if not os.path.isdir(p2):
                 os.mkdir(p2)
-            run1(p, p2, num_captures=50, num_words=NUM_WORDS)
+            start2 = timer()
+            run1(in_path=p, out_path=p2, num_captures=50, num_words=NUM_WORDS, word_address_offset=random_offset)
+            end2 = timer()
+            duration2 = end2 - start2
+            print(f"Elapsed time: {duration2:2.02f}")
+            print()
+        end1 = timer()
+        duration1 = end1 - start1
+        print(f"Total elapsed time: {duration1:2.02f}")

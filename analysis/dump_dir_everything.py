@@ -1,8 +1,10 @@
+from typing import Any
 import os, sys, random
 from timeit import default_timer as timer
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap
 
 from serial_analysis import *
 
@@ -11,7 +13,7 @@ from serial_analysis import *
 hw_vec_fn = np.vectorize(hamming_weight)
 
 
-def show_binary_image_from_data(ax, ndarray, color0="black", color1="white"):
+def show_binary_image_from_data(ax, ndarray, color0="black", color1="white", interpolation="nearest"):
     '''A "binary image" is a black-and-white only 2D image (no grayscale) and this function displays one'''
     ax.set_xticks([])
     ax.set_yticks([])
@@ -19,42 +21,77 @@ def show_binary_image_from_data(ax, ndarray, color0="black", color1="white"):
     # (thanks, matplotlib)
     if len(unique_arr := np.unique(ndarray)) == 1:
         if unique_arr[0] == 1:
-            ax.imshow(ndarray, matplotlib.colors.ListedColormap([color1]))
+            return ax.imshow(ndarray, ListedColormap([color1]))
         else:
-            ax.imshow(ndarray, matplotlib.colors.ListedColormap([color0]))
+            return ax.imshow(ndarray, ListedColormap([color0]))
     else:
         # ideally, this is the only branch we need (but it is not, see the above comment)
-        ax.imshow(ndarray, matplotlib.colors.ListedColormap([color0, color1]), interpolation="nearest")
+        return ax.imshow(ndarray, ListedColormap([color0, color1]), interpolation=interpolation)
 
 
-def create_salt_and_pepper_fig(file_path: str, puf_data_words: np.ndarray, width: int, height: int, title: str, start_word_address: int):
+def create_salt_and_pepper_fig(file_path: str, puf_data_words: np.ndarray, width: int, height: int, title: str, start_word_address: int = 0):
     print(f"Creating {width}x{height} salt & pepper image \"{title}\"")
     a0 = start_word_address * BITS_PER_WORD
     bit_count = width * height
     puf_data_bits = words_to_bits_np(puf_data_words)
     img_data = puf_data_bits[a0 : a0 + bit_count].reshape((width, height))
-    hw = np.sum(hw_vec_fn(img_data))
     f, ax = plt.subplots()
+    # hw = np.sum(hw_vec_fn(img_data))
+    # ax.set_xlabel(f"HW = {percent(hw, bit_count):.3f}%")
+    big = width > 512 or height > 512
+    if big:
+        plt.gcf().set_size_inches(11,8.5)
+    show_binary_image_from_data(ax, img_data, interpolation="bilinear" if big else "none")
     ax.set_title(title)
-    ax.set_xlabel(f"HW = {percent(hw, bit_count):.3f}%")
-    show_binary_image_from_data(ax, img_data)
+    ax.set_xticks(np.arange(0, width+1, width//8))
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
+    ax.set_yticks(np.arange(0, height+1, height//8))
     plt.savefig(file_path)
     plt.close()
 
 
-def create_heatmap_fig(file_path: str, bit_vote_counts: np.ndarray, width: int, height: int, title: str, start_word_address: int):
+def create_heatmap_fig(file_path: str, bit_vote_counts: np.ndarray, width: int, height: int, title: str, start_word_address: int = 0):
     print(f"Creating {width}x{height} bit bias heatmap image \"{title}\"")
     a0 = start_word_address * BITS_PER_WORD
     bit_count = width * height
     img = np.reshape(bit_vote_counts[a0 : a0 + bit_count], (width, height))
-    plt.imshow(img, "Blues")
-    plt.gca().set_title(title)
+    big = width > 512 or height > 512
+    plt.imshow(img, "Blues", interpolation="bilinear" if big else "none")
+    if big:
+        plt.gcf().set_size_inches(11,8.5)
+    ax = plt.gca()
+    ax.set_title(title)
+    ax.set_xticks(np.arange(0, width, width//8))
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
+    ax.set_yticks(np.arange(0, height, height//8))
     plt.colorbar(label='Bit vote count (normalized)') 
     plt.savefig(file_path)
     plt.close()
 
 
-def run1(in_path: str, out_path: str, num_captures: int, num_words: int, word_address_offset: int):
+def create_heatmap_fig_2(file_path: str, bit_vote_counts: np.ndarray, width: int, height: int, title: str, start_word_address: int = 0, cmap="Blues"):
+    print(f"Creating {width}x{height} bit bias heatmap image \"{title}\"")
+    a0 = start_word_address * BITS_PER_WORD
+    bit_count = width * height
+    modified_arr = 2 * np.abs(bit_vote_counts - 0.5)
+    img = np.reshape(modified_arr[a0 : a0 + bit_count], (width, height))
+    big = width > 512 or height > 512
+    if big:
+        plt.imshow(img, cmap, interpolation="bilinear")
+        plt.gcf().set_size_inches(11,8.5)
+    else:
+        plt.imshow(img, cmap, interpolation="none")
+    ax = plt.gca()
+    ax.set_title(title)
+    ax.set_xticks(np.arange(0, width, width//8))
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
+    ax.set_yticks(np.arange(0, height, height//8))
+    plt.colorbar(label='Bit stability (normalized)') 
+    plt.savefig(file_path)
+    plt.close()
+
+
+def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
     '''Process one multi-dump input file and generate the relevant report files into the out_path directory'''
 
     if not os.path.isfile(in_path):
@@ -126,8 +163,7 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int, word_ad
         print(f"Average Hamming weight = {hweight_avg} = {hweight_avg_p:.3f}%", file=hweights_file_out)
 
     # Create bit stability/strength vote figures
-    # for num_votes in (11, 25, 49):
-    for num_votes in np.unique([num_captures, 11, 20, 50]):
+    for num_votes in np.unique([40, num_captures]):
         # Try different amounts of max votes, but only as many as are in the actual data
         if num_votes > num_captures:
             # There aren't enough captures to have this many votes
@@ -145,7 +181,7 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int, word_ad
         # Make linear plot
         f = plt.figure()
         ax = f.gca()
-        ax.set_title("Histogram of power-up 1's")
+        ax.set_title(f"{name_whole} Histogram of power-up 1's")
         ax.set_xlabel("Times appeared as a 1")
         ax.set_ylabel("Bits")
         # ax.hist(binary_votes, max_votes_num + 1, align='mid')
@@ -243,15 +279,44 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int, word_ad
 
     # Create different sample images from the gold PUF
     sizes = (64, 128, 256, 512, 1024)
+    offset = 0
+    offset_str = f"0x{offset:X}"
     for size in sizes:
-        for offset in (0, word_address_offset):
-            offset_str = f"0x{offset:X}"
-            # "Salt and pepper" image
-            s_and_p_path = os.path.join(out_path, f"Salt-and-pepper-{size}x{size}-at-{offset_str}.png")
-            create_salt_and_pepper_fig(s_and_p_path, gold_puf_data, size, size, f"{name_whole} Gold PUF {size}x{size} at {offset_str}", offset)
-            # Heatmap image
-            heatmap_path = os.path.join(out_path, f"Heatmap-{size}x{size}-at-{offset_str}.png")
-            create_heatmap_fig(heatmap_path, captures_bit_votes, size, size, f"{name_whole} Bit State Heatmap at {offset_str}", offset)
+        # "Salt and pepper" image
+        s_and_p_path = os.path.join(out_path, f"Salt-and-pepper-{size}x{size}-at-{offset_str}.png")
+        create_salt_and_pepper_fig(s_and_p_path, gold_puf_data, size, size, f"{name_whole} Gold PUF {size}x{size} at {offset_str}", offset)
+        # Heatmap image
+        heatmap_path = os.path.join(out_path, f"Heatmap-{size}x{size}-at-{offset_str}.png")
+        create_heatmap_fig(heatmap_path, captures_bit_votes/num_captures, size, size, f"{name_whole} Bit State Heatmap at {offset_str}", offset)
+
+    # Full-chip images...
+    full_size = int(NUM_BITS**0.5)
+
+    # Full-chip salt-and-pepper image
+    s_and_p_path = os.path.join(out_path, f"Salt-and-pepper-full.png")
+    create_salt_and_pepper_fig(s_and_p_path, gold_puf_data, full_size, full_size, f"{name_whole} Gold PUF")
+
+    # Full-chip Heatmap image
+    heatmap_path = os.path.join(out_path, f"Heatmap-full.png")
+    create_heatmap_fig(heatmap_path, captures_bit_votes/num_captures, full_size, full_size, f"{name_whole} Bit State Heatmap")
+
+    # Modified heatmap image(s)
+    highlight_color = np.array([0.05, 0.05, 0.95])
+    colors_last = np.ones((10, 3))
+    colors_butlast = np.ones((10, 3))
+    colors_half = np.ones((10, 3))
+    colors_last[-1] = highlight_color
+    colors_butlast[:-1] = highlight_color
+    colors_half[5:] = highlight_color
+    views: dict[str, Any] = {
+        "Heatmap-rescale-continuous.png": "Blues",
+        "Heatmap-rescale-stable.png": ListedColormap(colors_last),
+        "Heatmap-rescale-half-stable.png": ListedColormap(colors_half),
+        "Heatmap-rescale-unstable.png": ListedColormap(colors_butlast),
+    }
+    for file_name, cmap in views.items():
+        heatmap_path_2 = os.path.join(out_path, file_name)
+        create_heatmap_fig_2(heatmap_path_2, captures_bit_votes/num_captures, full_size, full_size, f"{name_whole} Stable Bit Heatmap", cmap=cmap)
 
 
 def main():
@@ -326,9 +391,9 @@ if __name__ == '__main__':
             r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay_cap.txt",
         ]
 
-        max_img_bit_size = 1024
-        random_offset = random.randint(0, NUM_WORDS - (max_img_bit_size**2)//BITS_PER_WORD)
-        print(f"Random offset = 0x{random_offset:X}")
+        # max_img_bit_size = 1024
+        # random_offset = random.randint(0, NUM_WORDS - (max_img_bit_size**2)//BITS_PER_WORD)
+        # print(f"Random offset = 0x{random_offset:X}")
 
         start1 = timer()
         for i, p in enumerate(paths):
@@ -337,7 +402,7 @@ if __name__ == '__main__':
             if not os.path.isdir(p2):
                 os.mkdir(p2)
             start2 = timer()
-            run1(in_path=p, out_path=p2, num_captures=50, num_words=NUM_WORDS, word_address_offset=random_offset)
+            run1(in_path=p, out_path=p2, num_captures=50, num_words=NUM_WORDS)
             end2 = timer()
             duration2 = end2 - start2
             print(f"Elapsed time: {duration2:2.02f}")

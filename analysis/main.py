@@ -707,6 +707,8 @@ def hamming_weight(x: int) -> int:
     # return result
     return int(x).bit_count() # Use Python's built-in method
 
+hw_vec = np.vectorize(hamming_weight)
+
 
 def bit_weight(x: int) -> int:
     '''Get the Hamming weight (the number of bits set to 1) of an integer. Same as the hamming_weight() function.'''
@@ -1561,22 +1563,6 @@ def main_dumpfile():
         print(f"* mode word value occurences = {mode_count} = {percent(mode_count, num_words)}% of the time")
 
 
-def main():
-    if len(sys.argv) < 3:
-        print(f"usage: {sys.argv[0]} input-dump-file output-directory [num-captures]")
-        exit(1)
-
-    num_captures = 50
-    if len(sys.argv) > 3:
-        num_captures = int(sys.argv[3])
-
-    os.mkdir(sys.argv[2])
-    run1(sys.argv[1], sys.argv[2], num_captures=num_captures, num_words=NUM_WORDS)
-
-
-hw_vec = np.vectorize(hamming_weight)
-
-
 def ask_file_list() -> list[str]:
     result = []
 
@@ -1722,81 +1708,100 @@ def main_gold_puf_grid():
     print("Done with Hamming Distances")
 
 
+def main_generate_plots_in_dir():
+    if len(sys.argv) < 3:
+        print(f"usage: {sys.argv[0]} input-dump-file output-directory [num-captures]")
+        exit(1)
+
+    num_captures = 50
+    if len(sys.argv) > 3:
+        num_captures = int(sys.argv[3])
+
+    os.mkdir(sys.argv[2])
+    run1(sys.argv[1], sys.argv[2], num_captures=num_captures, num_words=NUM_WORDS)
+
+
+def main_generate_plots_in_dirs():
+    paths = [
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\RT_maybe-30s-50dumps-2024.10.22.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\0C-30s-50dumps-2024.10.23.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\0C-240s-50dumps-2024.10.25.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\30C-30s-50dumps-2024.11.05.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\50C-30s-50dumps-2024.10.22.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\50C-30s-50dumps-2024.10.21.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\RT-30s-50dumps-2024.10.21.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\0C-30s-50dumps-2024.10.23.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\0C-240s-50dumps-2024.10.25.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\30C-30s-50dumps-2024.11.05.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\0C-30s-50dumps.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\30C-60s-50dumps-2024.11.05.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\50C-30s-50dumps-2024.10.24.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\RT-30s-50dumps-2022.10.22.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1\50_captures_15_second_delay.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1-rad\RT-15s-20dumps.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-2\50_captures_15_second_delay_cap.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-2\50_captures_15_second_delay.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-LP-1\50C-60s-50dumps-2024.11.08.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-LP-1\0C-240s-50dumps-2024.11.01.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-Z\RT-30s-50dumps.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-2\50_captures_15_second_delay_cap.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-2\50_captures_15_second_delay.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-3\50_captures_15_second_delay_cap.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-3\50_captures_15_second_delay.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-4\50_captures_15_second_delay_cap.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-4\35_captures_15_second_delay_cap.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-4\50_captures_15_second_delay.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-5\RT-30s-50dumps.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\RT-30s-50dumps-2024.10.22.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\0C-30s-50dumps-2024.10.23.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\0C-240s-50dumps-2024.10.25.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\30C-30s-24dumps-2024.10.31.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\30C-60s-50dumps-2024.11.01.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\50C-30s-50dumps-2024.10.22-incomplete.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\50C-60s-50dumps-2024.11.08.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\RT-30s-50dumps-2024.10.22.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\0C-30s-50dumps-2024.10.23.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\0C-240s-50dumps-2024.10.25.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\30C-60s-25dumps-2024.10.31.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\30C-60s-50dumps-2024.11.01.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\50C-30s-50dumps-2024.10.21.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\2024.10.22-normal-30s-50dumps.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\0C-30s-50dumps.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\0C-240s-50dumps.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\30C-60s-50dumps-2024.11.05.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\50C-30s-50dumps-2024.10.24.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-4\RT-60s-50dumps.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-rad\RT-30s-20dumps.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay_inductor.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay_cap.txt",
+    ]
+
+    # max_img_bit_size = 1024
+    # random_offset = random.randint(0, NUM_WORDS - (max_img_bit_size**2)//BITS_PER_WORD)
+    # print(f"Random offset = 0x{random_offset:X}")
+
+    start1 = timer()
+    for i, p in enumerate(paths):
+        print(f"[{i+1}/{len(paths)}]: {p}")
+        p2 = p + "-results"
+        if not os.path.isdir(p2):
+            os.mkdir(p2)
+        start2 = timer()
+        run1(in_path=p, out_path=p2, num_captures=50, num_words=NUM_WORDS)
+        end2 = timer()
+        duration2 = end2 - start2
+        print(f"Elapsed time: {duration2:2.02f}")
+        print()
+    end1 = timer()
+    duration1 = end1 - start1
+    print(f"Total elapsed time: {duration1:2.02f}")
+
+
+def main():
+    print("main(): Running")
+    main_generate_plots_in_dirs()
+    print("main(): Done")
+
 if __name__ == '__main__':
-    if len(sys.argv) != 1:
-        main()
-    else:
-        paths = [
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\RT_maybe-30s-50dumps-2024.10.22.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\0C-30s-50dumps-2024.10.23.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\0C-240s-50dumps-2024.10.25.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\30C-30s-50dumps-2024.11.05.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\50C-30s-50dumps-2024.10.22.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\50C-30s-50dumps-2024.10.21.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\RT-30s-50dumps-2024.10.21.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\0C-30s-50dumps-2024.10.23.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\0C-240s-50dumps-2024.10.25.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\30C-30s-50dumps-2024.11.05.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\0C-30s-50dumps.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\30C-60s-50dumps-2024.11.05.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\50C-30s-50dumps-2024.10.24.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\RT-30s-50dumps-2022.10.22.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1\50_captures_15_second_delay.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1-rad\RT-15s-20dumps.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-2\50_captures_15_second_delay_cap.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-2\50_captures_15_second_delay.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-LP-1\50C-60s-50dumps-2024.11.08.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-LP-1\0C-240s-50dumps-2024.11.01.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-Z\RT-30s-50dumps.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-2\50_captures_15_second_delay_cap.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-2\50_captures_15_second_delay.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-3\50_captures_15_second_delay_cap.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-3\50_captures_15_second_delay.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-4\50_captures_15_second_delay_cap.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-4\35_captures_15_second_delay_cap.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-4\50_captures_15_second_delay.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-5\RT-30s-50dumps.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\RT-30s-50dumps-2024.10.22.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\0C-30s-50dumps-2024.10.23.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\0C-240s-50dumps-2024.10.25.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\30C-30s-24dumps-2024.10.31.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\30C-60s-50dumps-2024.11.01.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\50C-30s-50dumps-2024.10.22-incomplete.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\50C-60s-50dumps-2024.11.08.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\RT-30s-50dumps-2024.10.22.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\0C-30s-50dumps-2024.10.23.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\0C-240s-50dumps-2024.10.25.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\30C-60s-25dumps-2024.10.31.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\30C-60s-50dumps-2024.11.01.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\50C-30s-50dumps-2024.10.21.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\2024.10.22-normal-30s-50dumps.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\0C-30s-50dumps.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\0C-240s-50dumps.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\30C-60s-50dumps-2024.11.05.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\50C-30s-50dumps-2024.10.24.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-4\RT-60s-50dumps.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-rad\RT-30s-20dumps.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay_inductor.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay.txt",
-            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay_cap.txt",
-        ]
-
-        # max_img_bit_size = 1024
-        # random_offset = random.randint(0, NUM_WORDS - (max_img_bit_size**2)//BITS_PER_WORD)
-        # print(f"Random offset = 0x{random_offset:X}")
-
-        start1 = timer()
-        for i, p in enumerate(paths):
-            print(f"[{i+1}/{len(paths)}]: {p}")
-            p2 = p + "-results"
-            if not os.path.isdir(p2):
-                os.mkdir(p2)
-            start2 = timer()
-            run1(in_path=p, out_path=p2, num_captures=50, num_words=NUM_WORDS)
-            end2 = timer()
-            duration2 = end2 - start2
-            print(f"Elapsed time: {duration2:2.02f}")
-            print()
-        end1 = timer()
-        duration1 = end1 - start1
-        print(f"Total elapsed time: {duration1:2.02f}")
+    main()

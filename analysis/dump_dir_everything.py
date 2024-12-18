@@ -320,6 +320,38 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
         create_heatmap_fig_2(heatmap_path_2, captures_bit_votes/num_captures, full_size, full_size, f"{name_whole} Stable Bit Heatmap", cmap=cmap)
 
 
+def main_dumpfile():
+    if len(sys.argv) > 1:
+        dump_filename = sys.argv[1]
+    else:
+        dump_filename = input("enter file name: ")
+
+    with open(dump_filename, 'rb') as file_in:
+        num_words = file_seek_next_data_dump_and_count_it(file_in)
+        print(f"* data word count = {num_words}")
+
+        hw = 0
+        for _ in range(num_words):
+            hw += hamming_weight(file_read_next_hex4(file_in))
+        hw_percent = percent(hw, num_words)
+        print(f"* Hamming weight = {hw} = {hw_percent}%")
+
+        # Go to beginning of data dump again and find the min, max, and mode word value
+        file_seek_next_data_dump_and_count_it(file_in)
+        all_data = file_read_hex4_dump_as_words(file_in, num_words)
+        max_val = np.max(all_data)
+        min_val = np.min(all_data)
+        unique, counts = np.unique(all_data, return_counts=True)
+        mode_index = np.argmax(counts)
+        mode_val = unique[mode_index]
+        mode_count = counts[mode_index]
+        del all_data
+        print(f"* max word value  = 0x{hex4_i(max_val)} = {max_val}")
+        print(f"* min word value  = 0x{hex4_i(min_val)} = {min_val}")
+        print(f"* mode word value = 0x{hex4_i(mode_val)} = {mode_val}")
+        print(f"* mode word value occurences = {mode_count} = {percent(mode_count, num_words)}% of the time")
+
+
 def main():
     if len(sys.argv) < 3:
         print(f"usage: {sys.argv[0]} input-dump-file output-directory [num-captures]")

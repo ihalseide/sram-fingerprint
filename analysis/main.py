@@ -17,43 +17,6 @@ NUM_BITS = BITS_PER_WORD * NUM_WORDS
 HEX4_WORD_PATTERN = re.compile(r"[a-f0-9]{4}", re.IGNORECASE) # Hex dump pattern
 
 
-def main_create_gold_puf():
-    num_captures = 11
-    assert(num_captures % 2 != 0) # must be odd so there are no voting ties
-    input_file_names = [ f"chip inh2 gold PUF/capture {i}.txt" for i in range(1, 1 + num_captures) ]
-    output_file_name = "chip inh2 gold PUF/gold PUF.txt"
-    
-    print(f"output file name: \"{output_file_name}\"")
-
-    # Array to map the data's bit index to number of votes that it should be set to a '1'
-    bit_votes_for_one = [ 0 for _ in range(NUM_BITS) ]
-
-    for file_name in input_file_names:
-        print(f"- loading file \"{file_name}\"")
-        with open(file_name, "rb") as file_in:
-            # Read each data word from the data file
-            for word_i in range(NUM_WORDS):
-                word = file_read_next_hex4(file_in)
-                # Log the "bit vote" for each bit of the word
-                for word_bit_i in range(BITS_PER_WORD):
-                    bit_i = (word_i * BITS_PER_WORD) + word_bit_i
-                    # Test bit number 'bit_i' and increment a vote if it is set
-                    if word & (1 << word_bit_i):
-                        bit_votes_for_one[bit_i] += 1
-
-    # Iterate bit votes and print out best-voted word values
-    print(f"saving result to output file")
-    with open(output_file_name, "w") as file_out:
-        for word_i in range(NUM_WORDS):
-            word_value = 0
-            for word_bit_i in range(BITS_PER_WORD):
-                bit_i = (word_i * BITS_PER_WORD) + word_bit_i
-                # Resolve the bit votes to see if '1' or '0' wins the majority
-                if bit_votes_for_one[bit_i] > (num_captures // 2):
-                    word_value |= 1 << word_bit_i
-            print(f"{word_value:04X}", file=file_out)
-
-
 def combine_captures(capture_file_names: list[str], output_file):
     # Allow 'output_file' to be a file or file path
     if isinstance(output_file, str):
@@ -196,48 +159,6 @@ def file_read_hex4_dump_as_words(file_in: TextIO, num_words: int) -> np.ndarray:
     return result
 
 
-def main_stats():
-    fileName = r"chip inh2 gold PUF/gold PUF.txt"
-    expected_num_words = 2**18
-
-    hex_re = HEX4_WORD_PATTERN
-    word_sep = '\n'
-    ham_weight = 0
-
-    occurrences = defaultdict(lambda: 0)
-
-    with open(fileName, "r") as file:
-        print(f"Reading from file \"{fileName}\"")
-        index = -1
-        while (word := file.read(4)):
-            index += 1
-            if not hex_re.match(word):
-                raise ValueError(f"bad hex word at address {index}: '{word}'")
-            int_val = int(word, 16)
-            occurrences[int_val] += 1
-            ham_weight += bit_weight(int_val)
-            if not (sep := file.read(1)):
-                break
-            assert(sep == word_sep)
-
-    if index != expected_num_words - 1:
-        print(f"[NOTE] got {index} words, but not get the expected number of words ({expected_num_words})")
-    else:
-        print("Got the expected amount of data words")
-
-    print(f"Hamming weight: {ham_weight:,}")
-
-    num_bits = expected_num_words * 16
-    percent_ones = percent(ham_weight, num_bits)
-    print(f"Percentage of 1's in the data: {percent_ones:.4f}%")
-    print(f"Percentage of 0's in the data: {100-percent_ones:.4f}%")
-
-    max_entry = max(occurrences, key=occurrences.get)
-    max_entry_num = occurrences[max_entry]
-    max_percent = percent(max_entry_num, expected_num_words)
-    print(f"Most common value: '{hex(max_entry)}' = '{bin(max_entry)}', which occurs {max_entry_num:,} times, which is {max_percent:.3f}% of entries")
-
-
 def diff_puf_and_multi_capture(puf_file_name: str, trials_dump_file_name: str, num_words=NUM_WORDS):
     with open(puf_file_name, "rb") as puf_file:
         with open(trials_dump_file_name, "rb") as trials_file:
@@ -307,6 +228,7 @@ def file_load_delays(dump_file: TextIO, num_captures: int) -> np.ndarray:
     results = np.empty(num_captures)
     for i in range(num_captures):
         line = file_seek_next_delay_line(dump_file)
+        assert line is not None
         results[i] = float(line)
     return results
 
@@ -616,14 +538,6 @@ def file_skip_hex4(file_in, count: int):
         file_read_next_hex4(file_in)
 
 
-# for example only
-def __bit_difference(arrayA, arrayB, num_words) -> int:
-    difference = 0
-    for i in range(num_words):
-        difference += hamming_weight(xor([i], arrayB[i]))
-    return difference
-
-
 def file_hamming_weight(file_in: TextIO, num_words: int) -> int:        
     return sum(map(hamming_weight, file_read_hex4_dump_as_words(file_in, num_words)))
 
@@ -707,7 +621,9 @@ def hamming_weight(x: int) -> int:
     # return result
     return int(x).bit_count() # Use Python's built-in method
 
-hw_vec = np.vectorize(hamming_weight)
+
+# Convert Hamming Weight function to numpy vectorized function for later
+hw_vec_fn = np.vectorize(hamming_weight)
 
 
 def bit_weight(x: int) -> int:
@@ -727,35 +643,6 @@ def check_file_increasing(file_in, num_words: int = NUM_WORDS) -> bool:
             result = False
     print("ok")
     return result
-
-
-def test():
-    test_bit_difference()
-    test_hex4()
-    test_data_loss_percent()
-
-
-def test_bit_difference():
-    # print("begin testing")
-    assert(bit_difference(0, 0) == 0)
-    assert(bit_difference(0, 1) == 1)
-    assert(bit_difference(1, 0) == 1)
-    assert(bit_difference(1, 1) == 0)
-    assert(bit_difference(3, 1) == 1)
-    assert(bit_difference(7, 0) == 3)
-    assert(bit_difference(0xf, 0) == 4)
-    assert(bit_difference(0xff, 0) == 8)
-    assert(bit_difference(0xffff, 0) == 16)
-    assert(bit_difference(0b1010101010101010, 0b0101010101010101) == 16)
-    assert(bit_difference(0xf00f, 0) == 8)
-    assert(bit_difference(0xf00f, 0xffff) == 8)
-    # print("end testing")
-
-
-def test_hex4():
-    assert(hex4(0) == '0000')
-    assert(hex4(1) == '0001')
-    assert(hex4(0xff) == '00FF')
 
 
 def percent(numerator: float, denominator: float) -> float:
@@ -1221,10 +1108,6 @@ def create_puf_np(bit_votes_for_1: np.ndarray, threshold: int) -> np.ndarray:
     return np.packbits(bits, bitorder="big").view(np.uint16).byteswap(inplace=True)
 
 
-# Convert Hamming Weight function to numpy vectorized function for later
-hw_vec_fn = np.vectorize(hamming_weight)
-
-
 def show_binary_image_from_data(ax, ndarray, color0="black", color1="white", interpolation="nearest"):
     '''A "binary image" is a black-and-white only 2D image (no grayscale) and this function displays one'''
     ax.set_xticks([])
@@ -1531,6 +1414,139 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
         create_heatmap_fig_2(heatmap_path_2, captures_bit_votes/num_captures, full_size, full_size, f"{name_whole} Stable Bit Heatmap", cmap=cmap)
 
 
+def ask_file_list() -> list[str]:
+    result = []
+
+    base_path = input("Enter file directory base path (and maybe the common prefix for the file names): ")
+    print("Add files to compare, one by one (entering a blank line will stop adding file)...")
+
+    while f := input("add file: "):
+        # This is intentionally string concatenation, not path concatenation!
+        path = base_path + f
+
+        if os.path.isfile(path):
+            result.append(base_path + f)
+            print(f"Added '{path}'")
+        else:
+            print(f"Skipped adding '{path}' because it is NOT a valid file path")
+    
+    print("(end of list)")
+
+    return result
+    
+
+def file_list_diff_print(num_words, file_list: list[str]) -> None:
+    n = 0
+    for i, path_a in enumerate(file_list):
+        # Only compare this element to elements after this one, because order doesn't matter.
+        # I.E. HD(a, b) == HD(b, a)
+        with open(path_a, "r") as file_a:
+                data_a = file_load_capture(file_a, num_words)
+
+        for path_b in file_list[i + 1:]:
+            path_a_short = path_to_chipname(path_a)
+            path_b_short = path_to_chipname(path_b)
+            print(f"{n + 1}: '{path_a_short}' (X) '{path_b_short}'...", flush=True)
+
+            with open(path_b, "r") as file_b:
+                data_b = file_load_capture(file_b, num_words)
+
+            diff = np.sum(hw_vec_fn(np.bitwise_xor(data_a, data_b)))
+            p = percent(diff, num_words * BITS_PER_WORD)
+            print(f"* HD = {p:.3f}%")
+
+            c = stats.pearsonr(data_a, data_b).correlation
+            print(f"* Pearson correlation = {c:.4f}")
+            n += 1
+
+
+def file_list_diff_save(num_words, file_list: list[str], cmat_fname: str, hdmat_fname: str) -> None:    
+    """
+    `cmat_fname`: correlation matrix filename
+    `hdmat_fname`: Hamming distance matrix filename
+    """
+    num_bits = num_words * BITS_PER_WORD
+
+    n = len(file_list)
+    mat_hd = np.zeros((n, n))
+    mat_c = np.zeros((n, n))
+
+    # Rows [0...n-1]
+    # Cols [1...n]
+
+    for i in range(n):
+        path_a = file_list[i]
+        data_a = np.load(path_a)
+        path_a_short = path_to_chipname(path_a)
+        
+        for j in range(n):
+            if (j-1 >= i): continue
+
+            path_b = file_list[j]
+            data_b = np.load(path_b)
+            path_b_short = path_to_chipname(path_b)
+
+            print(f"Comparing {path_a_short} with {path_b_short}")
+
+            mat_hd[i, j] = np.sum(hw_vec_fn(np.bitwise_xor(data_a, data_b))) / num_bits
+            mat_c[i, j] = stats.pearsonr(data_a, data_b).correlation
+
+    np.save(hdmat_fname, mat_hd)
+    np.save(cmat_fname, mat_c)
+
+
+def plot_correlation_matrix(file_list: list[str], file_path: str):
+    mat_c = np.load(file_path)
+    labels = list(map(path_to_chipname, file_list))
+    ai = plt.matshow(mat_c)
+    ax = plt.gca()
+    plt.colorbar(ai)
+    ax.xaxis.tick_bottom()
+    ax.set_yticks(np.arange(len(labels)), labels)
+    ax.set_xticks(np.arange(len(labels)), labels, rotation=45)
+    # ax.set_xticklabels()
+    ax.axis("image")
+    ax.set_title("Gold PUF Pearson Correlation Matrix")
+    plt.show()
+
+
+def path_to_chipname(path: str) -> str:
+    """Shorten path with a chip name like "XYZ-100nm-PQR" in it to just the chip name"""
+    m = re.search(r"\\([^\\-]+-[^\\-]*nm-[^\\-]*)", path)
+    if not m:
+        raise ValueError()
+    return m.group(1)
+
+
+def test():
+    test_bit_difference()
+    test_hex4()
+    test_data_loss_percent()
+
+
+def test_bit_difference():
+    # print("begin testing")
+    assert(bit_difference(0, 0) == 0)
+    assert(bit_difference(0, 1) == 1)
+    assert(bit_difference(1, 0) == 1)
+    assert(bit_difference(1, 1) == 0)
+    assert(bit_difference(3, 1) == 1)
+    assert(bit_difference(7, 0) == 3)
+    assert(bit_difference(0xf, 0) == 4)
+    assert(bit_difference(0xff, 0) == 8)
+    assert(bit_difference(0xffff, 0) == 16)
+    assert(bit_difference(0b1010101010101010, 0b0101010101010101) == 16)
+    assert(bit_difference(0xf00f, 0) == 8)
+    assert(bit_difference(0xf00f, 0xffff) == 8)
+    # print("end testing")
+
+
+def test_hex4():
+    assert(hex4(0) == '0000')
+    assert(hex4(1) == '0001')
+    assert(hex4(0xff) == '00FF')
+
+
 def main_dumpfile():
     if len(sys.argv) > 1:
         dump_filename = sys.argv[1]
@@ -1563,107 +1579,41 @@ def main_dumpfile():
         print(f"* mode word value occurences = {mode_count} = {percent(mode_count, num_words)}% of the time")
 
 
-def ask_file_list() -> list[str]:
-    result = []
-
-    base_path = input("Enter file directory base path (and maybe the common prefix for the file names): ")
-    print("Add files to compare, one by one (entering a blank line will stop adding file)...")
-
-    while f := input("add file: "):
-        # This is intentionally string concatenation, not path concatenation!
-        path = base_path + f
-
-        if os.path.isfile(path):
-            result.append(base_path + f)
-            print(f"Added '{path}'")
-        else:
-            print(f"Skipped adding '{path}' because it is NOT a valid file path")
+def main_create_gold_puf():
+    num_captures = 11
+    assert(num_captures % 2 != 0) # must be odd so there are no voting ties
+    input_file_names = [ f"chip inh2 gold PUF/capture {i}.txt" for i in range(1, 1 + num_captures) ]
+    output_file_name = "chip inh2 gold PUF/gold PUF.txt"
     
-    print("(end of list)")
+    print(f"output file name: \"{output_file_name}\"")
 
-    return result
-    
+    # Array to map the data's bit index to number of votes that it should be set to a '1'
+    bit_votes_for_one = [ 0 for _ in range(NUM_BITS) ]
 
-def file_list_diff_print(num_words, file_list: list[str]) -> None:
-    n = 0
-    for i, path_a in enumerate(file_list):
-        # Only compare this element to elements after this one, because order doesn't matter.
-        # I.E. HD(a, b) == HD(b, a)
-        with open(path_a, "r") as file_a:
-                data_a = file_load_capture(file_a, num_words)
+    for file_name in input_file_names:
+        print(f"- loading file \"{file_name}\"")
+        with open(file_name, "rb") as file_in:
+            # Read each data word from the data file
+            for word_i in range(NUM_WORDS):
+                word = file_read_next_hex4(file_in)
+                # Log the "bit vote" for each bit of the word
+                for word_bit_i in range(BITS_PER_WORD):
+                    bit_i = (word_i * BITS_PER_WORD) + word_bit_i
+                    # Test bit number 'bit_i' and increment a vote if it is set
+                    if word & (1 << word_bit_i):
+                        bit_votes_for_one[bit_i] += 1
 
-        for path_b in file_list[i + 1:]:
-            path_a_short = shorten(path_a)
-            path_b_short = shorten(path_b)
-            print(f"{n + 1}: '{path_a_short}' (X) '{path_b_short}'...", flush=True)
-
-            with open(path_b, "r") as file_b:
-                data_b = file_load_capture(file_b, num_words)
-
-            diff = np.sum(hw_vec(np.bitwise_xor(data_a, data_b)))
-            p = percent(diff, num_words * BITS_PER_WORD)
-            print(f"* HD = {p:.3f}%")
-
-            c = stats.pearsonr(data_a, data_b).correlation
-            print(f"* Pearson correlation = {c:.4f}")
-            n += 1
-
-
-def file_list_diff_save(num_words, file_list: list[str], cmat_fname: str, hdmat_fname: str) -> None:    
-    """
-    `cmat_fname`: correlation matrix filename
-    `hdmat_fname`: Hamming distance matrix filename
-    """
-    num_bits = num_words * BITS_PER_WORD
-
-    n = len(file_list)
-    mat_hd = np.zeros((n, n))
-    mat_c = np.zeros((n, n))
-
-    # Rows [0...n-1]
-    # Cols [1...n]
-
-    for i in range(n):
-        path_a = file_list[i]
-        data_a = np.load(path_a)
-        path_a_short = shorten(path_a)
-        
-        for j in range(n):
-            if (j-1 >= i): continue
-
-            path_b = file_list[j]
-            data_b = np.load(path_b)
-            path_b_short = shorten(path_b)
-
-            print(f"Comparing {path_a_short} with {path_b_short}")
-
-            mat_hd[i, j] = np.sum(hw_vec(np.bitwise_xor(data_a, data_b))) / num_bits
-            mat_c[i, j] = stats.pearsonr(data_a, data_b).correlation
-
-    np.save(hdmat_fname, mat_hd)
-    np.save(cmat_fname, mat_c)
-
-
-def plot_correlation_matrix(file_list: list[str], file_path: str):
-    mat_c = np.load(file_path)
-    labels = list(map(shorten, file_list))
-    ai = plt.matshow(mat_c)
-    ax = plt.gca()
-    plt.colorbar(ai)
-    ax.xaxis.tick_bottom()
-    ax.set_yticks(np.arange(len(labels)), labels)
-    ax.set_xticks(np.arange(len(labels)), labels, rotation=45)
-    # ax.set_xticklabels()
-    ax.axis("image")
-    ax.set_title("Gold PUF Pearson Correlation Matrix")
-    plt.show()
-
-
-def shorten(path: str) -> str:
-    m = re.search(r"\\([^\\-]+-[^\\-]*nm-[^\\-]*)", path)
-    if not m:
-        raise ValueError()
-    return m.group(1)
+    # Iterate bit votes and print out best-voted word values
+    print(f"saving result to output file")
+    with open(output_file_name, "w") as file_out:
+        for word_i in range(NUM_WORDS):
+            word_value = 0
+            for word_bit_i in range(BITS_PER_WORD):
+                bit_i = (word_i * BITS_PER_WORD) + word_bit_i
+                # Resolve the bit votes to see if '1' or '0' wins the majority
+                if bit_votes_for_one[bit_i] > (num_captures // 2):
+                    word_value |= 1 << word_bit_i
+            print(f"{word_value:04X}", file=file_out)
 
 
 def main_gold_puf_grid():
@@ -1791,17 +1741,61 @@ def main_generate_plots_in_dirs():
         run1(in_path=p, out_path=p2, num_captures=50, num_words=NUM_WORDS)
         end2 = timer()
         duration2 = end2 - start2
-        print(f"Elapsed time: {duration2:2.02f}")
+        print(f"Elapsed time: {duration2:.02f}")
         print()
     end1 = timer()
     duration1 = end1 - start1
-    print(f"Total elapsed time: {duration1:2.02f}")
+    print(f"Total elapsed time: {duration1:.02f}")
 
 
-def main():
-    print("main(): Running")
-    main_generate_plots_in_dirs()
-    print("main(): Done")
+
+def main_stats():
+    fileName = r"chip inh2 gold PUF/gold PUF.txt"
+    expected_num_words = 2**18
+
+    hex_re = HEX4_WORD_PATTERN
+    word_sep = '\n'
+    ham_weight = 0
+
+    occurrences = defaultdict(lambda: 0)
+
+    with open(fileName, "r") as file:
+        print(f"Reading from file \"{fileName}\"")
+        index = -1
+        while (word := file.read(4)):
+            index += 1
+            if not hex_re.match(word):
+                raise ValueError(f"bad hex word at address {index}: '{word}'")
+            int_val = int(word, 16)
+            occurrences[int_val] += 1
+            ham_weight += bit_weight(int_val)
+            if not (sep := file.read(1)):
+                break
+            assert(sep == word_sep)
+
+    if index != expected_num_words - 1:
+        print(f"[NOTE] got {index} words, but not get the expected number of words ({expected_num_words})")
+    else:
+        print("Got the expected amount of data words")
+
+    print(f"Hamming weight: {ham_weight:,}")
+
+    num_bits = expected_num_words * 16
+    percent_ones = percent(ham_weight, num_bits)
+    print(f"Percentage of 1's in the data: {percent_ones:.4f}%")
+    print(f"Percentage of 0's in the data: {100-percent_ones:.4f}%")
+
+    max_entry = max(occurrences, key=occurrences.get)
+    max_entry_num = occurrences[max_entry]
+    max_percent = percent(max_entry_num, expected_num_words)
+    print(f"Most common value: '{hex(max_entry)}' = '{bin(max_entry)}', which occurs {max_entry_num:,} times, which is {max_percent:.3f}% of entries")
+
 
 if __name__ == '__main__':
-    main()
+    print("main(): Running\n")
+    main_generate_plots_in_dirs()
+    # main_create_gold_puf()
+    # main_generate_plots_in_dir()
+    # main_create_gold_puf()
+    # main_gold_puf_grid()
+    print("\nmain(): Done")

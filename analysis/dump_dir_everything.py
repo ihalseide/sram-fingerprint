@@ -1,11 +1,10 @@
 import numpy as np
 from scipy.stats import stats
-import matplotlib
 import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap, ListedColormap
+from matplotlib.colors import ListedColormap
 
 from typing import Any
-import os, sys, random
+import os, sys
 from timeit import default_timer as timer
 
 from serial_analysis import *

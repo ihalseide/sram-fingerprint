@@ -1,11 +1,12 @@
-from typing import Any
-import os, sys, random
-from timeit import default_timer as timer
 import numpy as np
 from scipy.stats import stats
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap
+
+from typing import Any
+import os, sys, random
+from timeit import default_timer as timer
 
 from serial_analysis import *
 

@@ -13,7 +13,7 @@ constexpr unsigned int
  pin_nBHE = 46, // !byte high enable
  pin_nBLE = 45, // !byte low enable
  pin_nWE = 8, // !write enable
- pin_nVccEnable = 53; // pin for the MOSFET controlling VCC to the SRAM chip
+ pin_pmosGate = 53; // pin for the MOSFET controlling VCC to the SRAM chip
 
 // Arduino pin numbers for the A0-A17 pins on the Cypress SRAM chip (18 address bits)
 constexpr unsigned int AddressPinCount = 18;
@@ -36,7 +36,7 @@ void setupControlPins() {
   pinMode(pin_nBHE, OUTPUT);
   pinMode(pin_nBLE, OUTPUT);
   pinMode(pin_nWE, OUTPUT);
-  pinMode(pin_nVccEnable, OUTPUT);
+  pinMode(pin_pmosGate, OUTPUT);
 }
 
 
@@ -45,6 +45,52 @@ void setupAddressPins() {
   for (int i = 0; i < AddressPinCount; i++) {
     pinMode(addressPins[i], OUTPUT);
   }
+}
+
+
+void enableWrite() {
+  // Note: is inverted because WE is active low
+  digitalWrite(pin_nWE, LOW);
+}
+
+
+void disableWrite() {
+  // Note: is inverted because WE is active low
+  digitalWrite(pin_nWE, HIGH);
+}
+
+
+void enableOutput() {
+  // Note: is inverted because OE is active low
+  digitalWrite(pin_nOE, LOW);
+}
+
+
+void disableOutput() {
+  // Note: is inverted because OE is active low
+  digitalWrite(pin_nOE, HIGH);
+}
+
+
+void disableChip() {
+  // Note: is inverted because CE is active low
+  digitalWrite(pin_nCE, HIGH);
+}
+
+
+void enableChip() {
+  // Note: is inverted because CE is active low
+  digitalWrite(pin_nCE, LOW);
+}
+
+
+void turnOffPMOS() {
+  digitalWrite(pin_pmosGate, HIGH);
+}
+
+
+void turnOnPMOS() {
+  digitalWrite(pin_pmosGate, LOW);
 }
 
 
@@ -65,17 +111,16 @@ void setAddressPins(uint32_t address) {
 // Result is the 16-bit data word read from combining the data pins.
 uint16_t readDataPins() {
   // Setup control pins
-  digitalWrite(pin_nWE, HIGH); // disable write
+  disableWrite();
   digitalWrite(pin_nBHE, LOW); // enable high byte
   digitalWrite(pin_nBLE, LOW); // enable low byte
-  digitalWrite(pin_nOE, LOW); // enable output
+  enableOutput();
 
   // Actually read the pin values
   uint16_t result = getDataPins();
   
   // Cleanup control pins
-  digitalWrite(pin_nWE, HIGH); // disable writing (still)
-  digitalWrite(pin_nOE, HIGH); // disable output
+  disableOutput();
 
   return result;
 }
@@ -84,17 +129,16 @@ uint16_t readDataPins() {
 // Set the SRAM's I/O pins to output mode and write a value to them.
 void writeDataPins(uint16_t value) {
   // Setup control pins
-  digitalWrite(pin_nWE, LOW); // enable writing
+  disableOutput();
   digitalWrite(pin_nBHE, LOW); // enable high byte
   digitalWrite(pin_nBLE, LOW); // enable low byte
-  digitalWrite(pin_nOE, HIGH); // disable output
+  enableWrite();
 
   // Actually write the value
   setDataPins(value);
 
   // Cleanup control pins
-  digitalWrite(pin_nWE, HIGH); // disable writing
-  digitalWrite(pin_nOE, HIGH); // disable output (still)
+  disableWrite();
 }
 
 
@@ -118,7 +162,7 @@ uint16_t getDataPins() {
   dataPinMode(INPUT);
   uint16_t result = 0;
   for (uint16_t i = 0; i < DataPinCount; i++) {
-    result |= (!!digitalRead(dataPins[i])) << i; // the '!!' "operator" forces the value to be '0' or '1'
+    result |= (!!digitalRead(dataPins[i])) << i; // the '!!' forces the value to be '0' or '1'
   }
   return result;
 }
@@ -289,15 +333,11 @@ void fillRangeOfSRAM(uint16_t value, uint32_t base_address, uint32_t count, unsi
 }
 
 
-// Disable all voltage across the SRAM chip's pins (power off)
-void turnOffSRAM() {
-  // Disable chip entil the end
-  digitalWrite(pin_nCE, HIGH);
+void setAllPinsLow() {
+  // Disable chip to prevent any side-effects from the next changes below
+  disableChip();
 
-  // disable VCC to chip (by setting the MOSFET pin for power to high)
-  digitalWrite(pin_nVccEnable, HIGH);
-
-  // Make all the SRAM lines are LOW, so there is no voltage sustaining the SRAM memory
+  // Set all lines to be low
   digitalWrite(pin_nOE, LOW);
   digitalWrite(pin_nWE, LOW);
   digitalWrite(pin_nBHE, LOW);
@@ -305,8 +345,15 @@ void turnOffSRAM() {
   setAddressPins(0);
   setDataPins(0);
 
-  // Finally, set this last line LOW
+  // Finally, set the chip enable line to LOW
   digitalWrite(pin_nCE, LOW);
+}
+
+
+// Disable all voltage across the SRAM chip's pins (power off)
+void turnOffSRAM() {
+  setAllPinsLow();
+  turnOffPMOS();
 }
 
 
@@ -316,7 +363,8 @@ void turnOnSRAM() {
   digitalWrite(pin_nCE, HIGH);
 
   // enable VCC to chip
-  digitalWrite(pin_nVccEnable, LOW);
+  turnOnPMOS();
+
   // disable chip output (because this is the default expected state for the rest of the code)
   digitalWrite(pin_nOE, HIGH);
   // chip data writing disabled

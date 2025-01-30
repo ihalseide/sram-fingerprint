@@ -1,4 +1,5 @@
 '''
+NOTE: (2025.01.29) this is an old file kept for reference.
 Code to analyze the words and bits of one or many SRAM memory capture files from the Arduino DUE.
 Author: INH
 '''

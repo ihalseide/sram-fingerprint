@@ -8,7 +8,7 @@ from typing import Any
 from timeit import default_timer as timer
 from operator import xor
 from typing import BinaryIO, Iterable, TextIO
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 
 
 BITS_PER_WORD = 16 # SRAM bits per word
@@ -1068,10 +1068,11 @@ def file_load_captures_fallback(file_in: TextIO, num_captures: int, num_words: i
 
 def words_to_bits_np(words: np.ndarray) -> np.ndarray:
     num_words = words.shape[0] 
-    result = np.zeros(num_words * BITS_PER_WORD)
+    # result = np.zeros(num_words * BITS_PER_WORD)
     shifts = np.tile(np.arange(BITS_PER_WORD)[::-1], reps=num_words) # note arange() is reversed to get the correct bit-ordering
     x = words.repeat(BITS_PER_WORD)
     return (x >> shifts) & 1
+
 
 def create_votes_np(captures: np.ndarray) -> np.ndarray:
     """Convert capture's memory dumps to bit array of votes for that bit being a 1"""
@@ -1186,7 +1187,7 @@ def create_heatmap_fig_2(file_path: str, bit_vote_counts: np.ndarray, width: int
     plt.close()
 
 
-def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
+def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words: int):
     '''Process one multi-dump input file and generate the relevant report files into the out_path directory'''
 
     if not os.path.isfile(in_path):
@@ -1203,13 +1204,13 @@ def run1(in_path: str, out_path: str, num_captures: int, num_words: int):
     if name_match is None:
         raise ValueError("Could not find the chip name in file path")
     name_whole = name_match.group(0)
-    name_man = name_match.group(1)
-    name_nm = name_match.group(2)
-    name_num = name_match.group(3)
+    # name_man = name_match.group(1)
+    # name_nm = name_match.group(2)
+    # name_num = name_match.group(3)
 
     # Check if pre-loaded captures numpy file already exists
     captures_npy_file_exists = False
-    for reduced_captures_num in range(num_captures, 5, -1):
+    for reduced_captures_num in range(num_captures, max(1,num_captures-10), -1):
         captures_data_file_name = os.path.join(out_path, f"Captures-{reduced_captures_num}.npy")
         captures_npy_file_exists = os.path.isfile(captures_data_file_name)
         if captures_npy_file_exists:
@@ -1495,19 +1496,144 @@ def file_list_diff_save(num_words, file_list: list[str], cmat_fname: str, hdmat_
     np.save(cmat_fname, mat_c)
 
 
-def plot_correlation_matrix(file_list: list[str], file_path: str):
+def file_list_stable_diff_save(num_words, file_list: list[str], cmat_fname: str, num_captures: int) -> None:    
+    """
+    Make unstable bits all be zero
+    `cmat_fname`: correlation matrix filename
+    `hdmat_fname`: Hamming distance matrix filename
+    """
+    num_bits = num_words * BITS_PER_WORD
+
+    n = len(file_list)
+    mat_c = np.zeros((n, n))
+
+    # Rows [0...n-1]
+    # Cols [1...n]
+
+    for i in range(n):
+        path_a = file_list[i]
+        path_a_short = path_to_chipname(path_a)
+        votes_a = np.load(path_a)
+        
+        for j in range(n):
+
+            path_b = file_list[j]
+            path_b_short = path_to_chipname(path_b)
+            data_b = create_puf_np(np.load(path_b), (num_captures+1)//2)
+
+            print(f"Comparing {path_a_short} (X) {path_b_short}")
+
+            # Put Hamming similarity (instead of HD)
+            mat_c[i, j] = 1.0 - heatmap_vote_distance(num_captures, 0.9, votes_a, data_b)/num_bits
+
+    np.save(cmat_fname, mat_c)
+
+
+TemplateFileGroup = namedtuple("TemplateFileGroup", ["name", "chip_votes_file_list"])
+
+def multi_template_chip_diff(stability_threshold: float, template_file_groups: list[TemplateFileGroup], chip_file_list: list[str]) -> np.ndarray:
+    n_templates = len(template_file_groups)
+    n_chips = len(chip_file_list)
+    mat = np.empty((n_templates, n_chips))
+
+    for i, group in enumerate(template_file_groups):
+        print(f"Comparing with group {group.name}")
+
+        # Load each of chip's file in the group
+        captures_and_votes = []
+        for chip1_filename in group.chip_votes_file_list:
+            # Get max vote count a.k.a number of trials from the filename
+            m = re.search(r"Votes-(\d+)", chip1_filename)
+            assert m is not None
+            num_trials = int(m.group(1))
+            votes = np.load(chip1_filename)
+            captures_and_votes.append( (num_trials, votes) )
+
+        # Combine the votes from each chip in the group
+        template_votes = create_multi_votes(captures_and_votes)
+
+        for j, chip_puf_filename in enumerate(chip_file_list):
+            chip_puf = np.load(chip_puf_filename)
+            # Below, num_trials=1 because create_multi_votes() already divides by the total num_trials internally
+            d = heatmap_vote_distance(num_trials=1,
+                                      stability_threshold_a=stability_threshold, 
+                                    votes_a=template_votes,
+                                    words_b=chip_puf)
+            # Divide by NUM_BITS to get a value from 0.0 to 1.0 for each bit
+            mat[i, j] =  1.0 - d / NUM_BITS
+
+    return mat
+
+
+def heatmap_vote_distance(num_trials: int, stability_threshold_a: float, votes_a: np.ndarray, words_b: np.ndarray) -> int:
+    """Stability threshold for how stable a bit has to be in order to keep it"""
+    votes_a_stab = 2.0 * np.abs(votes_a/num_trials - 0.5) # Remap vote count to stability
+    keep_mask = np.zeros(votes_a.shape, dtype="int")
+    keep_mask[votes_a_stab >= stability_threshold_a] = 1
+    words_a = create_puf_np(votes_a, (num_trials+1)//2)
+    diff = np.bitwise_xor(words_a, words_b)
+    diff_bits = words_to_bits_np(diff)
+    diff_keep = np.bitwise_and(diff_bits, keep_mask)
+    return np.sum(diff_keep)
+
+
+def plot_correlation_matrix(file_list: list[str], file_path: str, **kwargs):
     mat_c = np.load(file_path)
     labels = list(map(path_to_chipname, file_list))
-    ai = plt.matshow(mat_c)
-    ax = plt.gca()
-    plt.colorbar(ai)
+    f = plt.figure(1)
+    ai = plt.matshow(mat_c, 1, vmin=0, vmax=1)
+    ax = f.gca()
+    f.colorbar(ai)
     ax.xaxis.tick_bottom()
     ax.set_yticks(np.arange(len(labels)), labels)
-    ax.set_xticks(np.arange(len(labels)), labels, rotation=45)
+    ax.set_xticks(np.arange(len(labels)), labels, rotation=20, ha="right")
+    if a := kwargs.get("title"):
+        ax.set_title(a)
+    if a := kwargs.get("xlabel"):
+        ax.set_xlabel(a)
+    if a := kwargs.get("ylabel"):
+        ax.set_ylabel(a)
+    # for i in range(len(labels)):
+    #     for j in range(len(labels)):
+    #         c = mat_c[i, j]
+    #         if c == 0: continue
+    #         text = ax.text(j, i, f"{c:.4f}",
+    #                     ha="center", va="center", color="w")
     # ax.set_xticklabels()
-    ax.axis("image")
-    ax.set_title("Gold PUF Pearson Correlation Matrix")
+    # ax.axis("image")
     plt.show()
+
+
+def plot_correlation_matrix_2(matrix: np.ndarray, xlabels: list[str], ylabels: list[str], **kwargs):
+    assert (len(ylabels), len(xlabels)) == matrix.shape
+    f = plt.figure(1)
+    ai = plt.matshow(matrix, 1)
+    #ai = plt.matshow(matrix, 1, vmin=0, vmax=1)
+    ax = f.gca()
+    f.colorbar(ai)
+    ax.xaxis.tick_bottom()
+    ax.set_yticks(np.arange(len(ylabels)), ylabels)
+    ax.set_xticks(np.arange(len(xlabels)), xlabels, rotation=20, ha="right")
+    if a := kwargs.get("title"):
+        ax.set_title(a)
+    if a := kwargs.get("xlabel"):
+        ax.set_xlabel(a)
+    if a := kwargs.get("ylabel"):
+        ax.set_ylabel(a)
+    plt.show()
+
+
+def create_multi_votes(captures_and_votes: list[tuple[int, np.ndarray]]) -> np.ndarray:
+    """
+    Combine multiple votes captures (from multiple different chips) to create a single vote capture.
+    Returns an array of NUM_BITS with values 0.0 to 1.0
+    """
+    total_bit_votes = np.zeros((NUM_BITS))
+    total_trials = 0
+    for trials, bit_votes in captures_and_votes:
+        total_trials += trials
+        total_bit_votes += bit_votes
+    return total_bit_votes/total_trials
 
 
 def path_to_chipname(path: str) -> str:
@@ -1614,6 +1740,99 @@ def main_create_gold_puf():
                 if bit_votes_for_one[bit_i] > (num_captures // 2):
                     word_value |= 1 << word_bit_i
             print(f"{word_value:04X}", file=file_out)
+
+
+def main_stable_multi_chip_grid():
+    chip_template_groups = [
+        TemplateFileGroup("CY-65nm", [
+            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\RT_maybe-30s-50dumps-2024.10.22.txt-results\Votes-50.npy",
+            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\RT-30s-50dumps-2024.10.21.txt-results\Votes-50.npy",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\RT-30s-50dumps-2022.10.22.txt-results\Votes-50.npy",
+        ]),
+        TemplateFileGroup("CY-90nm", [
+            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1\50_captures_15_second_delay.txt-results\Votes-49.npy",
+            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-2\50_captures_15_second_delay.txt-results\Votes-50.npy",
+        ]),
+        TemplateFileGroup("CY-150nm", [
+            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-2\50_captures_15_second_delay.txt-results\Votes-50.npy",
+            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-3\50_captures_15_second_delay.txt-results\Votes-50.npy",
+            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-4\50_captures_15_second_delay.txt-results\Votes-50.npy",
+        ]),
+        TemplateFileGroup("CY-250nm", [
+            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\RT-30s-50dumps-2024.10.22.txt-results\Votes-50.npy",
+            r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\RT-30s-50dumps-2024.10.22.txt-results\Votes-50.npy",
+            # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\2024.10.22-normal-30s-50dumps.txt-results\Votes-50.npy",
+        ]),
+    ]
+
+    chip_files = [
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\RT_maybe-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\RT-30s-50dumps-2024.10.21.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\RT-30s-50dumps-2022.10.22.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-Z\RT-30s-50dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-2\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-2\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-3\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-4\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-5\RT-30s-50dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1-rad\RT-15s-20dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\2024.10.22-normal-30s-50dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-rad\RT-30s-20dumps.txt-results\Gold-PUF.npy",
+    ]
+
+    fname1 = "Multi-HD-matrix.npy"
+    stability_threshold = 0.95
+    if not os.path.isfile(fname1):
+        print(f"Creating matrix file \"{fname1}\". Stability threshold = {stability_threshold}")
+        matrix = multi_template_chip_diff(stability_threshold, chip_template_groups, chip_files)
+        np.save(fname1, matrix)
+    else:
+        print(f"Loading matrix file \"{fname1}\"")
+        matrix = np.load(fname1)
+    print("Plotting multi chip grid")
+    labels_x = list(map(path_to_chipname, chip_files))
+    labels_y = [ group.name for group in chip_template_groups ]
+    plot_correlation_matrix_2(matrix, labels_x, labels_y, title="Multi-chip Template Hamming Similarity Matrix", ylabel="Template", xlabel="Gold PUF")
+
+
+def main_stable_puf_grid():
+    file_list = [
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\RT_maybe-30s-50dumps-2024.10.22.txt-results\Votes-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\RT-30s-50dumps-2024.10.21.txt-results\Votes-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\RT-30s-50dumps-2022.10.22.txt-results\Votes-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-Z\RT-30s-50dumps.txt-results\Votes-50.npy",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1\50_captures_15_second_delay.txt-results\Votes-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-2\50_captures_15_second_delay.txt-results\Votes-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-2\50_captures_15_second_delay.txt-results\Votes-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-3\50_captures_15_second_delay.txt-results\Votes-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-4\50_captures_15_second_delay.txt-results\Votes-50.npy",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-5\RT-30s-50dumps.txt-results\Votes-50.npy",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1-rad\RT-15s-20dumps.txt-results\Votes-50.npy",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay.txt-results\Votes-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\RT-30s-50dumps-2024.10.22.txt-results\Votes-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\RT-30s-50dumps-2024.10.22.txt-results\Votes-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\2024.10.22-normal-30s-50dumps.txt-results\Votes-50.npy",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-rad\RT-30s-20dumps.txt-results\Votes-50.npy",
+    ]
+
+    print("Input files:")
+    for f in file_list:
+        print(f"- '{f}'")
+
+    n = len(file_list)
+    num_combos = (n * (n - 1)) // 2
+    print(f"Comparing Hamming Distance of each file against each other file ({num_combos} combinations) ...")
+
+    # file_list_diff_print(NUM_WORDS, file_list)
+    fname1 = "Correlation-matrix-votes.npy"
+    # file_list_stable_diff_save(NUM_WORDS, file_list, fname1, num_captures=50)
+    plot_correlation_matrix(file_list, fname1, title="PUF Hamming Similarity Matrix", ylabel="Template", xlabel="Gold PUF")
+
+    print("Done with Hamming Distances")
 
 
 def main_gold_puf_grid():
@@ -1738,7 +1957,7 @@ def main_generate_plots_in_dirs():
         if not os.path.isdir(p2):
             os.mkdir(p2)
         start2 = timer()
-        run1(in_path=p, out_path=p2, num_captures=50, num_words=NUM_WORDS)
+        lots_of_plots_run1(in_path=p, out_path=p2, num_captures=50, num_words=NUM_WORDS)
         end2 = timer()
         duration2 = end2 - start2
         print(f"Elapsed time: {duration2:.02f}")
@@ -1798,4 +2017,6 @@ if __name__ == '__main__':
     # main_generate_plots_in_dir()
     # main_create_gold_puf()
     # main_gold_puf_grid()
+    # main_stable_puf_grid()
+    # main_stable_multi_chip_grid()
     print("\nmain(): Done")

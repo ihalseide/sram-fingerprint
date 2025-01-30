@@ -659,26 +659,12 @@ def files_read_and_calc_data_loss(pu_read_file, data_original_file, pu_ref_file,
     return percent(set_bits_top, set_bits_bot)
 
 
-def files_data_loss_percent(data_original_file, pu_read_trials_file, pu_ref_file, num_words: int, num_word_skip: int = 0) -> list[tuple[float, float]]:
+def files_data_loss_percent(data_original_file: TextIO, pu_read_trials_file: TextIO, pu_ref_file: TextIO, num_words: int, num_word_skip: int = 0) -> list[tuple[float, float]]:
     '''Run a data loss calculation against the PUF file and multiple memory dumps that come from the Arduino'''
-
-    ## Recursive calls to allow the first 3 arguments to be a file path string or an already open file
-    if isinstance(data_original_file, str):
-        # print(f"files_data_loss_percent: {data_original_file=}")
-        with open(data_original_file, 'rb') as opened_file:
-            return files_data_loss_percent(opened_file, pu_read_trials_file, pu_ref_file, num_words, num_word_skip)
-    if isinstance(pu_read_trials_file, str):
-        # print(f"files_data_loss_percent: {pu_read_trials_file=}")
-        with open(pu_read_trials_file, 'rb') as opened_file:
-            return files_data_loss_percent(data_original_file, opened_file, pu_ref_file, num_words, num_word_skip)
-    if isinstance(pu_ref_file, str):
-        # print(f"files_data_loss_percent: {pu_ref_file=}")
-        with open(pu_ref_file, 'rb') as opened_file:
-            return files_data_loss_percent(data_original_file, pu_read_trials_file, opened_file, num_words, num_word_skip)
 
     data_result: list[tuple[float, float]] = []
     val_ms = None
-    while (line := pu_read_trials_file.readline().decode('ascii')):
+    while (line := pu_read_trials_file.readline()):
         line = line.strip()
         if line.startswith("Beginning trial"): # once we find a start of trial, record the delay value (in milliseconds)
             assert val_ms is None
@@ -698,26 +684,12 @@ def files_data_loss_percent(data_original_file, pu_read_trials_file, pu_ref_file
     return data_result
 
 
-def files_data_loss_count(data_original_file, pu_read_trials_file, pu_ref_file, num_words: int) -> list[tuple[float, float]]:
+def files_data_loss_count(data_original_file: TextIO, pu_read_trials_file: TextIO, pu_ref_file: TextIO, num_words: int) -> list[tuple[float, float]]:
     '''Run a data loss calculation against the PUF file and multiple memory dumps that come from the Arduino'''
-
-    ## Recursive calls to allow the first 3 arguments to be a file path string or an already open file
-    if isinstance(data_original_file, str):
-        # print(f"files_data_loss_percent: {data_original_file=}")
-        with open(data_original_file, 'rb') as opened_file:
-            return files_data_loss_count(opened_file, pu_read_trials_file, pu_ref_file, num_words)
-    if isinstance(pu_read_trials_file, str):
-        # print(f"files_data_loss_count: {pu_read_trials_file=}")
-        with open(pu_read_trials_file, 'rb') as opened_file:
-            return files_data_loss_count(data_original_file, opened_file, pu_ref_file, num_words)
-    if isinstance(pu_ref_file, str):
-        # print(f"files_data_loss_percent: {pu_ref_file=}")
-        with open(pu_ref_file, 'rb') as opened_file:
-            return files_data_loss_count(data_original_file, pu_read_trials_file, opened_file, num_words)
 
     data_result: list[tuple[float, float]] = []
     val_ms = None
-    while (line := pu_read_trials_file.readline().decode('ascii')):
+    while (line := pu_read_trials_file.readline()):
         line = line.strip()
         if line.startswith("Beginning trial"): # once we find a start of trial, record the delay value (in milliseconds)
             assert val_ms is None
@@ -742,57 +714,6 @@ def files_data_loss_count(data_original_file, pu_read_trials_file, pu_ref_file, 
             val_ms = None
 
     return data_result
-
-
-def file_xor(file_a, file_b, output_file, num_words: int):
-    '''
-    Read 'num_words' words from 2 files and write the XOR of the words to the output file.
-    NOTE: adds more columns and additional data to the output file
-    '''
-    if isinstance(file_a, str):
-        with open(file_a, 'rb') as opened_file:
-            return file_xor(opened_file, file_b, output_file, num_words)
-    if isinstance(file_b, str):
-        with open(file_b, 'rb') as opened_file:
-            return file_xor(file_a, opened_file, output_file, num_words)
-    if isinstance(output_file, str):
-        with open(output_file, 'w') as opened_file:
-            return file_xor(file_a, file_b, opened_file, num_words)
-    
-    sum_diff_weight = 0
-
-    for _ in range(num_words):
-        word_a = file_read_next_hex4(file_a)
-        word_b = file_read_next_hex4(file_b)
-        word_out = xor(word_a, word_b)
-        diff_weight = hamming_weight(word_out)
-        sum_diff_weight += diff_weight
-        print(hex4(word_a), end=' ', file=output_file)
-        print(hex4(word_b), end=' ', file=output_file)
-        print(hex4(word_out), end=' ', file=output_file)
-        print(bin16(word_out), end=' ', file=output_file)
-        print(diff_weight, file=output_file)
-
-    print('total bit difference', sum_diff_weight, file=output_file)
-
-
-def file_xor_basic(file_a, file_b, output_file, num_words: int):
-    '''Read 'num_words' words from 2 files and write the XOR of the words to the output file.'''
-    if isinstance(file_a, str):
-        with open(file_a, 'rb') as opened_file:
-            return file_xor_basic(opened_file, file_b, output_file, num_words)
-    if isinstance(file_b, str):
-        with open(file_b, 'rb') as opened_file:
-            return file_xor_basic(file_a, opened_file, output_file, num_words)
-    if isinstance(output_file, str):
-        with open(output_file, 'w') as opened_file:
-            return file_xor_basic(file_a, file_b, opened_file, num_words)
-
-    for _ in range(num_words):
-        word_a = file_read_next_hex4(file_a)
-        word_b = file_read_next_hex4(file_b)
-        word_out = xor(word_a, word_b)
-        print(hex4(word_out), file=output_file)
 
 
 def file_seek_trial_num(file_in, trial_num: int) -> int:

@@ -483,7 +483,8 @@ void dumpRangeOfSRAM(uint32_t base_address, uint32_t count, unsigned int step) {
 
     printWordHex4(readWord(base_address + i));    
   }
-
+  
+  Serial.println();
   Serial.flush();
 }
 

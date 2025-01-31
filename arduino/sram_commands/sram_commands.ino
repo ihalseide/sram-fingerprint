@@ -26,7 +26,6 @@ constexpr unsigned int dataPins[] = { 22, 23, 24, 25, 26, 27, 28, 29, 37, 38, 39
 constexpr unsigned int unused_analog_pin = A0;
 static uint16_t wordStorage[NUM_WORDS/8]; // This is the biggest that I can make it
 unsigned long wordStorageCount = 0;
-static bool dumpInBinary = false;
 
 
 // Put SRAM chip control pins in the right mode (input or output)
@@ -472,99 +471,28 @@ uint32_t promptForHexNumber(const char *messagePrompt = nullptr) {
 
 
 // Read a given range of SRAM and print to serial
-// NOTE: "interruptable" just means that the function will return early if an input character is received from the Serial monitor.
-void dumpRangeOfSRAM(uint32_t base_address, uint32_t count, unsigned int step, bool interruptable) {
-  // clear pending serial input data (so we can notice a real input from Serial data that signifies an "interrupt")
-  while (interruptable && Serial.available()) {
-    Serial.read();
-  }
-
-  // Prevent infinite loop that would happen if step == 0
-  if (!step) {
-    return;
-  }
-  
-  for (uint32_t a = 0; a < count; a += step) {
-    // Print word
-    printWordHex4(readWord(base_address + a));
-    Serial.println();
-    // Flush serial because this seems to prevent data being lost in transmission
-    Serial.flush();
-
-    // check for user interruption
-    if (interruptable && Serial.available()) {
-      Serial.println("[Interrupted by serial input]");
-      break;
-    }
-  }
-}
-
-
-// Read a given range of SRAM and print to serial
-// NOTE: "interruptable" just means that the function will return early if an input character is received from the Serial monitor.
 // (NEW version 2 uses a space as a separator instead of a newline)
-void dumpRangeOfSRAM_v2(uint32_t base_address, uint32_t count, unsigned int step, bool interruptable) {
+void dumpRangeOfSRAM_v2(uint32_t base_address, uint32_t count, unsigned int step) {
   // Prevent infinite loop that would happen if step == 0
   if (!step) {
     return;
   }
 
-  // clear pending serial input data (so we can notice a real input from Serial data that signifies an "interrupt")
-  if (interruptable) {
-    while (Serial.available()) {
-      Serial.read();
-    }
-  }
-
-  if (dumpInBinary) {
-
-    // Raw binary dump
-    for (uint32_t i = 0; i < count; i += step) {
-      // In raw binary dump, just do some periodic output flushing
-      if (i != 0 && i % 256 == 0) {
+  // Hex dump
+  for (uint32_t i = 0; i < count; i += step) {
+    if (i > 0) {
+      // In ASCII hex dump, add spaces between words and add newlines after every 16 words
+      if (i % 16 == 0) {
+        Serial.print('\n');
         // Flush serial because this seems to prevent data being lost in transmission
         Serial.flush();
       }
-
-      printWordRawBinary(readWord(base_address + i));
-
-      // check for user interruption
-      if (interruptable && Serial.available()) {
-        Serial.println("[Interrupted by serial input]");
-        break;
+      else {
+        Serial.print(' ');
       }
     }
 
-    Serial.println();
-
-  }
-  else {
-
-    // Hex dump
-    for (uint32_t i = 0; i < count; i += step) {
-      if (i != 0) {
-        // In ASCII hex dump, add spaces between words and add newlines after every 16 words
-        if (i % 16 == 0) {
-          Serial.print('\n');
-          // Flush serial because this seems to prevent data being lost in transmission
-          Serial.flush();
-        }
-        else {
-          Serial.print(' ');
-        }
-      }
-
-      printWordHex4(readWord(base_address + i));
-
-      // check for user interruption
-      if (interruptable && Serial.available()) {
-        Serial.println("[Interrupted by serial input]");
-        break;
-      }
-    }
-
-    Serial.println();
-    
+    printWordHex4(readWord(base_address + i));    
   }
 }
 
@@ -604,7 +532,7 @@ void runRemanenceExperiment(double start, double stop, double step) {
 
     // Restart SRAM and dump the power-up memory state
     powerCycleSRAM1(t_d);
-    printSectionMemoryDump_v2(0, theWordCount, 1);
+    printSectionMemoryDump(0, theWordCount, 1);
 
     // Extra delay, just in case
     delay(11);
@@ -637,7 +565,7 @@ void runRemanenceExperimentInternal(double start, double stop, double step) {
 
     // Restart SRAM and dump the power-up memory state
     powerCycleSRAM1(t_d);
-    printSectionMemoryDump_v2(0, theWordCount, 1);
+    printSectionMemoryDump(0, theWordCount, 1);
 
     // Extra delay, just in case
     delay(11);
@@ -1149,29 +1077,21 @@ bool checkConnectedChip(void) {
 
 // Do a memory dump with the required surrounding text that my Python code will look for.
 // (A memory range starts at base, and goes up to base+count, by a step of step).
-void printSectionMemoryDump(uint32_t baseAddress, uint32_t count, unsigned int step) {
-  Serial.println("[begin memory dump]");
-  dumpRangeOfSRAM(baseAddress, count, step, false);
-  Serial.println("[end memory dump]");
-}
-
-
-// Do a memory dump with the required surrounding text that my Python code will look for.
-// (A memory range starts at base, and goes up to base+count, by a step of step).
 // (New version 2, which logs the parameters)
-void printSectionMemoryDump_v2(uint32_t baseAddress, uint32_t count, unsigned int step) {
+void printSectionMemoryDump(uint32_t baseAddress, uint32_t count, unsigned int step) {
   Serial.println("Starting memory dump...");
   Serial.print("* base address = "); Serial.println(baseAddress, 16);
   Serial.print("* length = "); Serial.println(count);
   Serial.print("* step = "); Serial.println(step);
 
-  if (dumpInBinary) {
-    Serial.println("[BINARY]");
+  if (count == 0) {
+    Serial.println("printSectionMemoryDump: step = 0 not allowed");
+    return;
   }
 
   Serial.println("[begin memory dump]");
 
-  dumpRangeOfSRAM_v2(baseAddress, count, step, false);
+  dumpRangeOfSRAM_v2(baseAddress, count, step);
 
   Serial.println("[end memory dump]");
 }
@@ -1213,7 +1133,7 @@ void doMultipleDumps(void) {
     Serial.println(cycles);
 
     powerCycleSRAM2(ms_delay, 0);
-    printSectionMemoryDump_v2(0, count, 1);
+    printSectionMemoryDump(0, count, 1);
   }
 
   Serial.println("\nDone with dumping multiple SRAM startup values \a\a ");
@@ -1372,7 +1292,7 @@ void printChoices(void) {
   Serial.println(" 15) do experiment from command #6 multiple times");
   Serial.println(" 16) calculate Hamming distance between two SRAM chips");
   Serial.println(" 17) do a write/power-off/read cycle multiple times");
-  Serial.println(" 18) change memory dump data format");
+  Serial.println(" 18) [currently unused]");
 }
 
 
@@ -1407,7 +1327,7 @@ void handleCommandNumber(int choice) {
         Serial.println("Invalid base, count, or step");
         return;
       }
-      printSectionMemoryDump_v2(base, count, step);
+      printSectionMemoryDump(base, count, step);
     }  break;
   case 2:
     {
@@ -1656,43 +1576,13 @@ void handleCommandNumber(int choice) {
         powerCycleSRAM1(delay);
 
         // Dump SRAM values
-        printSectionMemoryDump_v2(0, count, 1);
+        printSectionMemoryDump(0, count, 1);
       }
 
       // Done
       Serial.println();
       Serial.println("Done with command #17");
       beep();
-    } break;
-  case 18:
-    {
-      // change memory dump data format
-
-      // Prompt user for change input
-      Serial.println("Enter the number for one of the following options...");
-      Serial.println(" 0) (Cancel)");
-      Serial.println(" 1) HEX dump");
-      Serial.println(" 2) raw binary dump");
-      auto option2 = promptForDecimalNumber("Enter choice: ");
-
-      // Update the state (or not)
-      switch (option2) {
-      case 0: break;
-      case 1:
-        {
-          dumpInBinary = false;
-        } break;
-      case 2:
-        {
-          dumpInBinary = true;
-        } break;
-      default: break;
-      }
-
-      // Report state
-      Serial.print("Will print memory dumps in ");
-      Serial.println(dumpInBinary ? "raw binary bytes" : "ASCII hex");
-
     } break;
   default:
     {
@@ -1716,8 +1606,10 @@ void setup() {
   Serial.println("Hello from Arduino!");
 
   // Setup pins to SRAM chip
+  readWord(0);
   setupControlPins();
   setupAddressPins();
+  readWord(0);
 }
 
 

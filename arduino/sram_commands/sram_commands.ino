@@ -95,11 +95,6 @@ void turnOnPMOS() {
 
 // Set the correct SRAM address pin logic values for a given address into the SRAM memory.
 void setAddressPins(uint32_t address) {
-  // Error check
-  if (address >= NUM_WORDS) {
-    Serial.print("[ERROR]: invalid SRAM address: ");
-    Serial.println(address, HEX);
-  }
   for (uint32_t i = 0; i < AddressPinCount; i++) {
     digitalWrite(addressPins[i], address & (1UL << i) );
   }
@@ -111,8 +106,9 @@ void setAddressPins(uint32_t address) {
 uint16_t readDataPins() {
   // Setup control pins
   disableWrite();
-  digitalWrite(pin_nBHE, LOW); // enable high byte
-  digitalWrite(pin_nBLE, LOW); // enable low byte
+  // The two calls below aren't needed because they are kept low from the very beginning.
+  // digitalWrite(pin_nBHE, LOW); // enable high byte
+  // digitalWrite(pin_nBLE, LOW); // enable low byte
   enableOutput();
 
   // Actually read the pin values
@@ -129,8 +125,9 @@ uint16_t readDataPins() {
 void writeDataPins(uint16_t value) {
   // Setup control pins
   disableOutput();
-  digitalWrite(pin_nBHE, LOW); // enable high byte
-  digitalWrite(pin_nBLE, LOW); // enable low byte
+  // The two calls below aren't needed because they are kept low from the very beginning.
+  // digitalWrite(pin_nBHE, LOW); // enable high byte
+  // digitalWrite(pin_nBLE, LOW); // enable low byte
   enableWrite();
 
   // Actually write the value
@@ -201,17 +198,6 @@ void printWordHex4(uint16_t word) {
 }
 
 
-// Dump a 16-bit word as 2 raw ASCII binary bytes.
-// High byte comes out first (to match the printWordHex4 function).
-void printWordRawBinary(uint16_t word) {
-  uint8_t lo = word & 0xFF;
-  uint8_t hi = (word >> 8) & 0xFF;
-  
-  Serial.write(hi); // write high byte of the 16-bit word
-  Serial.write(lo); // write low byte of the 16-bit word
-}
-
-
 // Get a newline-terminated line of input from the serial stream.
 // - Buffer usually will include the terminating '\n' newline character.
 // - More than 'bufferSize' characters may be consumed if backspace characters are received.
@@ -227,10 +213,11 @@ void serialPromptLine(char *buffer, int bufferSize) {
   int i = 0;
   char lastChar = 0;
   while (((!buffer && !bufferSize) || i < bufferSize - 1) && lastChar != '\n') {
+    // Wait for input
     while (!Serial.available()) { /* pass */ }
     lastChar = Serial.read();
 
-    // backspace
+    // Handle backspace character specially
     if (lastChar == '\b' && i > 0) {
       // Don't echo back
       // Serial.print(lastChar);
@@ -377,7 +364,7 @@ void turnOnSRAM() {
 // Check that the pMOS can actually power off an SRAM chip (by checking that there IS data loss after power-off then power-on)
 bool checkPowerControl() {
   constexpr uint16_t value = 0x5A5A;
-  constexpr int start = 0, stop = 1028, step = 8;
+  constexpr int start = 0, stop = 1028, step = 1;
 
   fillRangeOfSRAM(value, start, stop, step, false);
 
@@ -472,18 +459,17 @@ uint32_t promptForHexNumber(const char *messagePrompt = nullptr) {
 
 // Read a given range of SRAM and print to serial
 // (NEW version 2 uses a space as a separator instead of a newline)
-void dumpRangeOfSRAM_v2(uint32_t base_address, uint32_t count, unsigned int step) {
+void dumpRangeOfSRAM(uint32_t base_address, uint32_t count, unsigned int step) {
   // Prevent infinite loop that would happen if step == 0
   if (!step) {
     return;
   }
 
-  // Hex dump
   for (uint32_t i = 0; i < count; i += step) {
     if (i > 0) {
       // In ASCII hex dump, add spaces between words and add newlines after every 16 words
       if (i % 16 == 0) {
-        Serial.print('\n');
+        Serial.println();
         // Flush serial because this seems to prevent data being lost in transmission
         Serial.flush();
       }
@@ -494,6 +480,8 @@ void dumpRangeOfSRAM_v2(uint32_t base_address, uint32_t count, unsigned int step
 
     printWordHex4(readWord(base_address + i));    
   }
+
+  Serial.flush();
 }
 
 
@@ -710,7 +698,7 @@ void runCustomRemanenceExperiment(void) {
     }
   }
 
-  Serial.println("\n\n\n\aDone with remanence experiment\n\n\n");
+  Serial.println("\n\n\nDone with remanence experiment\n\n\n");
 }
 
 
@@ -759,7 +747,7 @@ void runCumulativeRemanenceExperiment(double start, double stop, double step) {
     delay(11);
   }
 
-  Serial.println("\n\n\n\aDone with CUMULATIVE remanence experiment\n\n\n");
+  Serial.println("\n\n\nDone with CUMULATIVE remanence experiment\n\n\n");
 }
 
 
@@ -767,7 +755,7 @@ void runCumulativeRemanenceExperiment(double start, double stop, double step) {
 //--------------------------------------------------
 // Random sequence (RS) code
 //--------------------------------------------------
-// This is used for iterating an array randomly.
+// This is used for iterating an entire array in a random order.
 //
 // The "API" is that you call `randomSequenceBegin(N)` once, then `randomSequenceNext` N times, and then call `randomSequenceEnd`.
 bool rs_isBegun = false;
@@ -804,7 +792,7 @@ bool randomSequenceBegin(unsigned int length) {
 
 // Returns the next random index, except when it returns -1 to indicate the end of the sequence.
 int randomSequenceNext() {
-  if (rs_index >= rs_length) {
+  if (!rs_isBegun || rs_index >= rs_length) {
     return -1;
   }
 
@@ -820,6 +808,10 @@ int randomSequenceNext() {
 }
 
 void randomSequenceEnd() {
+  if (!rs_isBegun) {
+    Serial.println("PROBLEM: randomSequenceEnd() called without first reaching randomSequenceBegin()");
+    Serial.end();
+  }
   rs_isBegun = false;
 }
 //--------------------------------------------------
@@ -1091,7 +1083,7 @@ void printSectionMemoryDump(uint32_t baseAddress, uint32_t count, unsigned int s
 
   Serial.println("[begin memory dump]");
 
-  dumpRangeOfSRAM_v2(baseAddress, count, step);
+  dumpRangeOfSRAM(baseAddress, count, step);
 
   Serial.println("[end memory dump]");
 }
@@ -1136,7 +1128,7 @@ void doMultipleDumps(void) {
     printSectionMemoryDump(0, count, 1);
   }
 
-  Serial.println("\nDone with dumping multiple SRAM startup values \a\a ");
+  Serial.println("\nDone with dumping multiple SRAM startup values ");
 }
 
 
@@ -1198,75 +1190,6 @@ uint32_t rangeHammingWeightProgress(uint32_t baseAddress, uint32_t count, uint32
 }
 
 
-// Writes all-0s to the SRAM and finds at what time bits are done flipping from 0 to 1
-// by doing a binary search
-// Parameters `t1` and `t2` are the search's power-off start and end times, in milliseconds.
-int findBitFlipStopTime(int t1, int t2) {
-  // Validate arguments
-  if (t1 >= t2) {
-    Serial.println("Argument error: (in findBitFlipStopTime) the start time, t1, must be less than the end time, t2.");
-    return 0;
-  }
-
-  // constexpr int base = 0, count = NUM_WORDS, step = 1;
-  constexpr int base = 4*1024, count = 1024, step = 1; // TODO: after testing, use the whole SRAM range!
-
-  int iterationsCompleted = 0;
-
-  while (t1 < t2) {
-    // Get Hamming Weight at off-time = t1
-    fillRangeOfSRAM(0x0000, base, count, step, false);
-    powerCycleSRAM1(t1);
-    auto hw1 = rangeHammingWeight(base, count, step);
-
-    // Get Hamming Weight at the midpoint of t1 and t2
-    fillRangeOfSRAM(0x0000, base, count, step, false);
-    int t1_2 = (t1 + t2) / 2;
-    auto hw1_2 = rangeHammingWeight(base, count, step);
-
-    // Get Hamming Weight at off-time = t2
-    fillRangeOfSRAM(0x0000, base, count, step, false);
-    powerCycleSRAM1(t2);
-    auto hw2 = rangeHammingWeight(base, count, step);
-
-    // I expect the HW is increasing over time, up until a point,
-    // and we want to find that point where the HW stays the same...
-
-    // Log the time and Hamming weights where this occurred.
-    Serial.print("In iteration #"); Serial.println(iterationsCompleted + 1);
-    Serial.print("* t1 = "); Serial.print(t1); Serial.print("hw1 = "); Serial.println(hw1);
-    Serial.print("* t1_2 = "); Serial.print(t1_2); Serial.print("hw1_2 = "); Serial.println(hw1_2);
-    Serial.print("* t2 = "); Serial.print(t2); Serial.print("hw2 = "); Serial.println(hw2);
-
-    // Check that above-mentioned assumption
-    if (!(hw1 <= hw1_2 && hw1_2 <= hw2)) {
-      // If this happens, our assumption is wrong in this case.
-      Serial.println("Hey, the Hamming weight is not always increasing!");
-      return 0;
-    }
-
-    // I am unsure about this next logic.... but we'll try it
-    // * Surely if (hw1_2 == hw_2), then the bits stopped flipping at or before t1_2.
-    // * Otherwise, (hw1_2 < hw_2) and the bits should stop flipping at or after t1_2.
-
-    if (hw1_2 == hw2) {
-      // Search the earlier half next iteration
-      Serial.println("Earlier.");
-      t2 = t1_2;
-    }
-    else {
-      // Search the later half in the next iteration
-      Serial.println("Later.");
-      t1 = t1_2;
-    }
-
-    iterationsCompleted++;
-  }
-
-  return t2;
-}
-
-
 void beep(void) {
   Serial.print('\a');
 }
@@ -1285,7 +1208,7 @@ void printChoices(void) {
   Serial.println("  8) sum up the Hamming weight on a memory range");
   Serial.println("  9) run remanence experiment 'custom'");
   Serial.println(" 10) run remanence experiment 'cumulative'");
-  Serial.println(" 11) Find maximum bit-flip time");
+  Serial.println(" 11) [currently unused]");
   Serial.println(" 12) [currently unused]");
   Serial.println(" 13) manual power cycle SRAM");
   Serial.println(" 14) do multiple sums of Hamming Weight");
@@ -1303,18 +1226,18 @@ void handleCommandNumber(int choice) {
       // Check SRAM chip socket connection
       Serial.print("Now running a test to check if the SRAM chip is working...");
       if (!checkConnectedChip()) {
-        Serial.println("\n\n>>>> NOT ok <<<<\n");
+        Serial.println("\n\n>>>> NOT ok\n");
         return;
       }
-      Serial.println("\n\n>>>> OK <<<<\n");
+      Serial.println("\n\n>>>> OK\n");
 
       // Check that the pMOS can turn chip on and off
       Serial.println("Now running a test to check if the pMOS can power on/off the SRAM chip...");
       if (checkPowerControl()) {
-        Serial.println("\n\n>>>> OK <<<<\n");
+        Serial.println("\n\n>>>> OK\n");
       }
       else {
-        Serial.println("\n\n>>>> NOT ok <<<<\n");
+        Serial.println("\n\n>>>> NOT ok\n");
       }
     } break;
   case 1:
@@ -1376,6 +1299,7 @@ void handleCommandNumber(int choice) {
   case 7:
     {
       doMultipleDumps();
+      beep();
     } break;
   case 8:
     {
@@ -1396,6 +1320,7 @@ void handleCommandNumber(int choice) {
   case 9:
     {
       runCustomRemanenceExperiment();
+      beep();
     } break;
   case 10:
     {
@@ -1408,21 +1333,7 @@ void handleCommandNumber(int choice) {
       }
       auto step_ms = (double) step_us / 1000.0;
       runCumulativeRemanenceExperiment(start_ms, stop_ms, step_ms);
-    } break;
-  case 11:
-    {
-      // Find maximum time for bits to stop flipping (do a binary search)
-      Serial.println("Find maximum time for bits to stop flipping...");
-      auto t1 = 1; // millis
-      auto t2 = promptForDecimalNumber("Search time endpoint (ms)"); // millis
-      auto result = findBitFlipStopTime(t1, t2);
-      Serial.print("Bits stop flipping at time = ");
-      Serial.print(result);
-      Serial.println(" ms");
-    } break;
-  case 12:
-    {
-      Serial.println("Command #12 is currently unused");
+      beep();
     } break;
   case 13:
     {
@@ -1450,13 +1361,6 @@ void handleCommandNumber(int choice) {
       if (length == 0) {
         length = NUM_WORDS;
       }
-      // Reset the full SRAM to all-zeros just once
-      // for (int i = 0; i < NUM_WORDS; i++) {
-      //   if (readWord(i) != 0) {
-      //     Serial.println("Failed!");
-      //     return;
-      //   }
-      // }
       // Repeat the cycles for Hamming Weight
       for (int i = 0; i < cycles; i++) {
         Serial.println("Filling the SRAM...");
@@ -1596,20 +1500,22 @@ void handleCommandNumber(int choice) {
 
 
 void setup() {
-  Serial.begin(180000, SERIAL_8E1);
   /* Notes:
      * 250000 Baud (8E1) memory dump 250kWords took 57s (has some data errors even with parity bit)
      * 115200 Baud (8N1) memory dump 250kWords took 109s
   */
   //Serial.begin(200000, SERIAL_8E1); // some errors occurr at 200kBaud
-  
+  Serial.begin(180000, SERIAL_8E1);
   Serial.println("Hello from Arduino!");
 
   // Setup pins to SRAM chip
-  readWord(0);
   setupControlPins();
   setupAddressPins();
-  readWord(0);
+
+  // These two calls ensure that the pins are in a known state.
+  // * Specifically, the BLE and BHE pins should always be LOW!
+  turnOffSRAM();
+  turnOnSRAM();
 }
 
 

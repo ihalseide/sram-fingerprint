@@ -209,7 +209,7 @@ void serialPromptLine(char *buffer, int bufferSize) {
   // Temporarily disable serial timeout
   auto timeoutBefore = Serial.getTimeout();
   Serial.setTimeout(-1);
-
+  
   int i = 0;
   char lastChar = 0;
   while (((!buffer && !bufferSize) || i < bufferSize - 1) && lastChar != '\n') {
@@ -247,7 +247,7 @@ void serialPromptLine(char *buffer, int bufferSize) {
 
 // Get an ASCII character's digit value, for integer parsing, in a given base.
 // Returns -1 if the character is invalid for the given base.
-int digitValue(char c, unsigned int base = 10) {
+int digitValue(char c, unsigned int base) {
   if ('0' <= c && c <= '9') {
     c -= '0';
   }
@@ -271,6 +271,7 @@ int digitValue(char c, unsigned int base = 10) {
 }
 
 
+// This function is needed instead of the Arduino default because I want to use HEX values for some numbers.
 // Convert ASCII string to a positive integer value.
 // Returns -1 if given an invalid string or when there is an integer overflow.
 // The whole string may have trailing spaces and be valid still.
@@ -428,11 +429,13 @@ void powerCycleSRAM1(double delay_ms) {
 
 
 // Prompt a human on the other side of the serial monitor to provide an integer.
+// Keeps trying until a valid number is entered.
 uint32_t promptInt(unsigned int base) {
   if (!base) { return 0; }
   while (1) {
-    char digitBuffer[64] = {0};
-    serialPromptLine(digitBuffer, sizeof(digitBuffer));
+    constexpr size_t BufferLength = 64;
+    char digitBuffer[BufferLength] = {0};
+    serialPromptLine(digitBuffer, BufferLength);
     auto x = parseInt(digitBuffer, strlen(digitBuffer) - 1, base); // Note: subtracts 1 from strlen because of there is a newline char at the end of the buffer
     if (x < 0) {
       Serial.print("Invalid input for a base-");

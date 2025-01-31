@@ -446,18 +446,15 @@ def file_skip_space(file_in):
 
 def file_read_next_hex4(file_in: TextIO) -> int:
     '''
-    Within an already-open file for reading, skip whitespace and then read a 4-digit hex number.
+    Within an already-open file for reading, skip whitespace and then read a 4-character hex number.
     Raises a 'ValueError' if it cannot read that from the file.
     '''
-    word = ""
     while True:
         c = file_in.read(1)
         if not c:
             raise ValueError(f"unexpected end of file at position #{file_in.tell()}")
-        if c.isspace():
-            continue
-        word += c
-        if len(word) == 4:
+        if not c.isspace():
+            word = c + file_in.read(3)
             return int(word, 16)
 
 
@@ -1712,13 +1709,13 @@ def main_generate_plots_in_dirs():
         # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay_inductor.txt",
         # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay.txt",
         # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay_cap.txt",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-4\RT-30s-50dumps.txt",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-5\RT-30s-50dumps.txt",
-    ]
 
-    # max_img_bit_size = 1024
-    # random_offset = random.randint(0, NUM_WORDS - (max_img_bit_size**2)//BITS_PER_WORD)
-    # print(f"Random offset = 0x{random_offset:X}")
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-4\RT-30s-50dumps.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-5\RT-30s-50dumps.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT-Xnm-2\RT-60s-50dumps.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT-Xnm-3\RT-60s-50dumps.txt",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT-Xnm-4\RT-60s-50dumps.txt",
+    ]
 
     start1 = timer()
     for i, p in enumerate(paths):
@@ -1730,7 +1727,7 @@ def main_generate_plots_in_dirs():
         lots_of_plots_run1(in_path=p, out_path=p2, num_captures=50, num_words=NUM_WORDS)
         end2 = timer()
         duration2 = end2 - start2
-        print(f"Elapsed time: {duration2:.02f}")
+        print(f"Single run time: {duration2:.02f}")
         print()
     end1 = timer()
     duration1 = end1 - start1

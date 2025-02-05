@@ -25,24 +25,6 @@ def file_read_hex4_dump_as_words(file_in: TextIO, num_words: int) -> np.ndarray:
     return result
 
 
-def diff_puf_and_multi_capture(puf_file_name: str, trials_dump_file_name: str, num_words=NUM_WORDS):
-    with open(puf_file_name, "rb") as puf_file:
-        with open(trials_dump_file_name, "rb") as trials_file:
-            val_ms = 0.0
-            percent_diff = 0.0
-            while line := trials_file.readline().decode('ascii'):
-                line = line.strip()
-                if line == "[begin memory dump]":
-                    # get memory dump bits and diff it with the PUF file
-                    puf_file.seek(0) # go to beginning of PUF file
-                    a_weight, b_weight, diff = bit_diff_within_files(puf_file, trials_file, num_words, puf_file_name, trials_dump_file_name)
-                    #report_file_bit_diff(puf_file_name, trials_dump_file_name, a_weight, b_weight, diff)
-                    percent_diff = percent(diff, num_words * BITS_PER_WORD)
-                    print(f"Percent difference: {percent_diff:.3f}")  
-                else:
-                    print(line)
-
-
 def diff_puf_and_trials_dump(puf_file_name: str, trials_dump_file_name: str, num_words=NUM_WORDS) -> tuple[tuple[float, float], ...]:
     '''Run a diff against the PUF file and multiple memory dumps that come from the Arduino'''
     data_result: list[tuple[float, float]] = list()

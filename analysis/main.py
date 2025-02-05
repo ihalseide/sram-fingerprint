@@ -452,10 +452,13 @@ def file_read_next_hex4(file_in: TextIO) -> int:
     while True:
         c = file_in.read(1)
         if not c:
-            raise ValueError(f"unexpected end of file at position #{file_in.tell()}")
+            break
         if not c.isspace():
             word = c + file_in.read(3)
+            if len(word) != 4:
+                break
             return int(word, 16)
+    raise ValueError(f"unexpected end of file at position #{file_in.tell()}")
 
 
 def file_read_next_hex4_no_error(file_in) -> int | None:

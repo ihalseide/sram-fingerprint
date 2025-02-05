@@ -1323,7 +1323,7 @@ def heatmap_vote_distance(num_trials: int, stability_threshold_a: float, votes_a
     return np.sum(diff_keep)
 
 
-def plot_correlation_matrix(file_list: list[str], file_path: str, **kwargs):
+def plot_correlation_matrix(file_list: list[str], file_path: str, **kwargs) -> None:
     mat_c = np.load(file_path)
     labels = list(map(path_to_chipname, file_list))
     f = plt.figure(1)
@@ -1350,7 +1350,7 @@ def plot_correlation_matrix(file_list: list[str], file_path: str, **kwargs):
     plt.show()
 
 
-def plot_correlation_matrix_2(matrix: np.ndarray, xlabels: list[str], ylabels: list[str], **kwargs):
+def plot_correlation_matrix_2(matrix: np.ndarray, xlabels: list[str], ylabels: list[str], **kwargs) -> None:
     assert (len(ylabels), len(xlabels)) == matrix.shape
     f = plt.figure(1)
     ai = plt.matshow(matrix, 1)
@@ -1390,13 +1390,13 @@ def path_to_chipname(path: str) -> str:
     return m.group(1)
 
 
-def test():
+def test() -> None:
     test_bit_difference()
     test_hex4()
     test_data_loss_percent()
 
 
-def test_bit_difference():
+def test_bit_difference() -> None:
     # print("begin testing")
     assert(bit_difference(0, 0) == 0)
     assert(bit_difference(0, 1) == 1)
@@ -1413,45 +1413,13 @@ def test_bit_difference():
     # print("end testing")
 
 
-def test_hex4():
+def test_hex4() -> None:
     assert(hex4(0) == '0000')
     assert(hex4(1) == '0001')
     assert(hex4(0xff) == '00FF')
 
 
-def main_dumpfile():
-    if len(sys.argv) > 1:
-        dump_filename = sys.argv[1]
-    else:
-        dump_filename = input("enter file name: ")
-
-    with open(dump_filename, 'rb') as file_in:
-        num_words = file_seek_next_data_dump_and_count_it(file_in)
-        print(f"* data word count = {num_words}")
-
-        hw = 0
-        for _ in range(num_words):
-            hw += hamming_weight(file_read_next_hex4(file_in))
-        hw_percent = percent(hw, num_words)
-        print(f"* Hamming weight = {hw} = {hw_percent}%")
-
-        # Go to beginning of data dump again and find the min, max, and mode word value
-        file_seek_next_data_dump_and_count_it(file_in)
-        all_data = file_read_hex4_dump_as_words(file_in, num_words)
-        max_val = np.max(all_data)
-        min_val = np.min(all_data)
-        unique, counts = np.unique(all_data, return_counts=True)
-        mode_index = np.argmax(counts)
-        mode_val = unique[mode_index]
-        mode_count = counts[mode_index]
-        del all_data
-        print(f"* max word value  = 0x{hex4_i(max_val)} = {max_val}")
-        print(f"* min word value  = 0x{hex4_i(min_val)} = {min_val}")
-        print(f"* mode word value = 0x{hex4_i(mode_val)} = {mode_val}")
-        print(f"* mode word value occurences = {mode_count} = {percent(mode_count, num_words)}% of the time")
-
-
-def main_create_gold_puf():
+def main_create_gold_puf() -> None:
     num_captures = 11
     assert(num_captures % 2 != 0) # must be odd so there are no voting ties
     input_file_names = [ f"chip inh2 gold PUF/capture {i}.txt" for i in range(1, 1 + num_captures) ]
@@ -1464,7 +1432,7 @@ def main_create_gold_puf():
 
     for file_name in input_file_names:
         print(f"- loading file \"{file_name}\"")
-        with open(file_name, "rb") as file_in:
+        with open(file_name, "r") as file_in:
             # Read each data word from the data file
             for word_i in range(NUM_WORDS):
                 word = file_read_next_hex4(file_in)
@@ -1488,7 +1456,7 @@ def main_create_gold_puf():
             print(f"{word_value:04X}", file=file_out)
 
 
-def main_stable_multi_chip_grid():
+def main_stable_multi_chip_grid() -> None:
     chip_template_groups = [
         TemplateFileGroup("CY-65nm", [
             r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\RT_maybe-30s-50dumps-2024.10.22.txt-results\Votes-50.npy",
@@ -1545,7 +1513,7 @@ def main_stable_multi_chip_grid():
     plot_correlation_matrix_2(matrix, labels_x, labels_y, title="Multi-chip Template Hamming Similarity Matrix", ylabel="Template", xlabel="Gold PUF")
 
 
-def main_stable_puf_grid():
+def main_stable_puf_grid() -> None:
     file_list = [
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\RT_maybe-30s-50dumps-2024.10.22.txt-results\Votes-50.npy",
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\RT-30s-50dumps-2024.10.21.txt-results\Votes-50.npy",
@@ -1581,7 +1549,7 @@ def main_stable_puf_grid():
     print("Done with Hamming Distances")
 
 
-def main_gold_puf_grid():
+def main_gold_puf_grid() -> None:
     file_list = sys.argv[1:]
 
     file_list = [
@@ -1623,7 +1591,7 @@ def main_gold_puf_grid():
     print("Done with Hamming Distances")
 
 
-def main_generate_plots_in_dir():
+def main_generate_plots_in_dir() -> None:
     if len(sys.argv) < 3:
         print(f"usage: {sys.argv[0]} input-dump-file output-directory [num-captures]")
         exit(1)
@@ -1636,8 +1604,8 @@ def main_generate_plots_in_dir():
     lots_of_plots_run1(sys.argv[1], sys.argv[2], num_captures=num_captures, num_words=NUM_WORDS)
 
 
-def main_generate_plots_in_dirs():
-    paths = [
+def main_generate_plots_in_dirs() -> None:
+    paths: list[str] = [
         # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\RT_maybe-30s-50dumps-2024.10.22.txt",
         # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\0C-30s-50dumps-2024.10.23.txt",
         # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\0C-240s-50dumps-2024.10.25.txt",
@@ -1713,56 +1681,15 @@ def main_generate_plots_in_dirs():
     print(f"Total elapsed time: {duration1:.02f}")
 
 
-def main_stats():
-    fileName = r"chip inh2 gold PUF/gold PUF.txt"
-    expected_num_words = 2**18
-
-    hex_re = HEX4_WORD_PATTERN
-    word_sep = '\n'
-    ham_weight = 0
-
-    occurrences = defaultdict(lambda: 0)
-
-    with open(fileName, "r") as file:
-        print(f"Reading from file \"{fileName}\"")
-        index = -1
-        while (word := file.read(4)):
-            index += 1
-            if not hex_re.match(word):
-                raise ValueError(f"bad hex word at address {index}: '{word}'")
-            int_val = int(word, 16)
-            occurrences[int_val] += 1
-            ham_weight += bit_weight(int_val)
-            if not (sep := file.read(1)):
-                break
-            assert(sep == word_sep)
-
-    if index != expected_num_words - 1:
-        print(f"[NOTE] got {index} words, but not get the expected number of words ({expected_num_words})")
-    else:
-        print("Got the expected amount of data words")
-
-    print(f"Hamming weight: {ham_weight:,}")
-
-    num_bits = expected_num_words * 16
-    percent_ones = percent(ham_weight, num_bits)
-    print(f"Percentage of 1's in the data: {percent_ones:.4f}%")
-    print(f"Percentage of 0's in the data: {100-percent_ones:.4f}%")
-
-    max_entry = max(occurrences, key=occurrences.get)
-    max_entry_num = occurrences[max_entry]
-    max_percent = percent(max_entry_num, expected_num_words)
-    print(f"Most common value: '{hex(max_entry)}' = '{bin(max_entry)}', which occurs {max_entry_num:,} times, which is {max_percent:.3f}% of entries")
-
-
-def hamming_distance_puf_npy(file_path1: str, file_path2: str):
+def hamming_distance_npy(file_path1: str, file_path2: str) -> int:
+    """Get Hamming distance between the dumps in two given .npy data dump files."""
     data1 = np.load(file_path1)
     data2 = np.load(file_path2)
-    hamming_distance = np.sum(hw_vec_fn(np.bitwise_xor(data1, data2)))
+    hamming_distance = int(np.sum(hw_vec_fn(np.bitwise_xor(data1, data2))))
     return hamming_distance
 
 
-def main_directly_compare_dumps():
+def main_directly_compare_dumps() -> None:
     """Find the Hamming Distance between data dumps of the two given file paths."""
     a = r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\RT-1dump-2025.02.25.txt.npy"
     # b = r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\30C-60s-50dumps-2024.11.05.txt-results\Gold-PUF.npy"
@@ -1771,7 +1698,7 @@ def main_directly_compare_dumps():
     print("Comparing A & B")
     print(f"* A: {a}")
     print(f"* B: {b}")
-    hd = hamming_distance_puf_npy(a, b)
+    hd = hamming_distance_npy(a, b)
     print(f"Hamming distance = {percent(hd, NUM_BITS)}%")
 
 
@@ -1785,13 +1712,13 @@ def main_convert_dump_file() -> None:
     print(f"Saved \"{path_out}\"")
 
         
-def main():
+def main() -> None:
     print("main(): Running\n")
 
     # Uncomment one of the calls below...
 
     # main_convert_dump_file()
-    main_directly_compare_dumps()
+    # main_directly_compare_dumps()
     # main_generate_plots_in_dirs()
     # main_create_gold_puf()
     # main_generate_plots_in_dir()

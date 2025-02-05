@@ -1016,15 +1016,6 @@ def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words
     for c in range(num_captures):
         hweights[c] = np.sum(hw_vec_fn(captures_data[c]))
     hweight_avg = float(np.average(hweights))
-    hweight_avg_p = percent(hweight_avg, num_bits)
-        
-    # Save Hamming weights to a new file
-    print("Saving Hamming weights")
-    hweights_file = os.path.join(out_path, "Hamming-weights.txt")
-    with open(hweights_file, "w") as hweights_file_out:
-        for i, hw in enumerate(hweights):
-            print(i, int(hw), percent(hw, num_bits), file=hweights_file_out)
-        print(f"Average Hamming weight = {hweight_avg} = {hweight_avg_p:.3f}%", file=hweights_file_out)
 
     # Create bit stability/strength vote figures
     for num_votes in np.unique([40, num_captures]):
@@ -1123,7 +1114,6 @@ def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words
 
     # Get gold PUF Hamming Weight (to add this info to the images below)
     puf_hweight = np.sum(hw_vec_fn(gold_puf_data))
-    puf_hweight_p = percent(puf_hweight, num_bits)
 
     # Get Hamming Distance between PUF and the dumps
     print("Calculating Hamming distances for each dump and the gold PUF")
@@ -1132,17 +1122,23 @@ def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words
         hd = np.sum(hw_vec_fn(np.bitwise_xor(captures_data[i], gold_puf_data)))
         hdistances[i] = hd
     hdistances_avg = float(np.average(np.array(hdistances)))
-    hdistances_avg_p = percent(hdistances_avg, num_bits)
     # Save Hamming weights to a new file
-    print("Saving Hamming distances")
-    hdistances_file = os.path.join(out_path, "Hamming-distances.txt")
+    print("Saving captures' Hamming weight and Hamming distance to PUF")
+    hdistances_file = os.path.join(out_path, "Captures-info.txt")
     with open(hdistances_file, "w") as hdistances_file_out:
-        for i, d in enumerate(hdistances):
-            print(f"{i}: {d} bits = {percent(d, num_bits):.3f}%", file=hdistances_file_out)
-        print(f"Average Hamming distance = {hdistances_avg} = {hdistances_avg_p:.3f}%", file=hdistances_file_out)
+        print("For each capture, the Hamming Weights (HW) and Hamming Distance to the gold PUF (HD)")
+        for i, hw_hd in enumerate(zip(hweights, hdistances)):
+            hw, hd = hw_hd
+            print(f"{i}: HW={percent(hw, num_bits):.3f}%; HD={percent(hd, num_bits):.3f}%", file=hdistances_file_out)
+        min_hw, max_hw = float(np.min(hweights)), float(np.max(hweights))
+        min_hd, max_hd = float(np.min(hdistances)), float(np.max(hdistances))
+        print(f"PUF: HW={percent(puf_hweight, num_bits):.3f}%; HD={percent(0, num_bits):.3f}%", file=hdistances_file_out)
+        print(f"Min: HW={percent(min_hw, num_bits):.3f}%; HD={percent(min_hd, num_bits):.3f}%", file=hdistances_file_out)
+        print(f"Max: HW={percent(max_hw, num_bits):.3f}%; HD={percent(max_hd, num_bits):.3f}%", file=hdistances_file_out)
+        print(f"Mean: HW={percent(hweight_avg, num_bits):.3f}%; HD={percent(hdistances_avg, num_bits):.3f}%", file=hdistances_file_out)
 
     # Create different sample images from the gold PUF
-    sizes = (64, 128, 256, 512, 1024)
+    sizes = (64, 128, 256, 512, 1024, 2048)
     offset = 0
     offset_str = f"0x{offset:X}"
     for size in sizes:
@@ -1717,7 +1713,7 @@ def main_generate_plots_in_dirs():
         # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-5\RT-30s-50dumps.txt",
         # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT-Xnm-2\RT-60s-50dumps.txt",
         # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT-Xnm-3\RT-60s-50dumps.txt",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT-Xnm-4\RT-60s-50dumps.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT-Xnm-4\RT-60s-50dumps.txt",
     ]
 
     start1 = timer()
@@ -1728,12 +1724,10 @@ def main_generate_plots_in_dirs():
             os.mkdir(p2)
         start2 = timer()
         lots_of_plots_run1(in_path=p, out_path=p2, num_captures=50, num_words=NUM_WORDS)
-        end2 = timer()
-        duration2 = end2 - start2
+        duration2 = timer() - start2
         print(f"Single run time: {duration2:.02f}")
         print()
-    end1 = timer()
-    duration1 = end1 - start1
+    duration1 = timer() - start1
     print(f"Total elapsed time: {duration1:.02f}")
 
 
@@ -1779,13 +1773,53 @@ def main_stats():
     print(f"Most common value: '{hex(max_entry)}' = '{bin(max_entry)}', which occurs {max_entry_num:,} times, which is {max_percent:.3f}% of entries")
 
 
-if __name__ == '__main__':
+def hamming_distance_puf_npy(file_path1: str, file_path2: str):
+    data1 = np.load(file_path1)
+    data2 = np.load(file_path2)
+    hamming_distance = np.sum(hw_vec_fn(np.bitwise_xor(data1, data2)))
+    return hamming_distance
+
+
+def main_directly_compare_dumps():
+    """Find the Hamming Distance between data dumps of the two given file paths."""
+    a = r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\RT-1dump-2025.02.25.txt.npy"
+    # b = r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\30C-60s-50dumps-2024.11.05.txt-results\Gold-PUF.npy"
+    # b = r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy"
+    b = r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy"
+    print("Comparing A & B")
+    print(f"* A: {a}")
+    print(f"* B: {b}")
+    hd = hamming_distance_puf_npy(a, b)
+    print(f"Hamming distance = {percent(hd, NUM_BITS)}%")
+
+
+def main_convert_dump_file() -> None:
+    """Convert a text dump file to a binary numpy dump file"""
+    path_in = r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\RT-1dump-2025.02.25.txt"
+    path_out = path_in + ".npy"
+    with open(path_in, "r") as file_in:
+        data = file_load_captures_fallback(file_in, num_captures=1, num_words=NUM_WORDS)
+    np.save(path_out, data)
+    print(f"Saved \"{path_out}\"")
+
+        
+def main():
     print("main(): Running\n")
-    main_generate_plots_in_dirs()
+
+    # Uncomment one of the calls below...
+
+    # main_convert_dump_file()
+    main_directly_compare_dumps()
+    # main_generate_plots_in_dirs()
     # main_create_gold_puf()
     # main_generate_plots_in_dir()
     # main_create_gold_puf()
     # main_gold_puf_grid()
     # main_stable_puf_grid()
     # main_stable_multi_chip_grid()
+
     print("\nmain(): Done")
+
+
+if __name__ == '__main__':
+    main()

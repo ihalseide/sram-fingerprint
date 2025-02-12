@@ -1397,6 +1397,39 @@ def path_to_chipname(path: str) -> str:
     return m.group(1)
 
 
+
+def block_average_2d_dump(data: np.ndarray, block_size: int) -> np.ndarray:
+    """Downscale a numpy array in a 2D manner.
+    There's probably a numpy function to do this block-by-block averaging, but I can't find one."""
+    data_square_size = int(data.shape[0] ** 0.5)
+    assert data_square_size % block_size == 0
+    data_square = np.reshape(data, (data_square_size, data_square_size))
+    n_blocks = data_square_size // block_size
+    assert n_blocks > 0
+    data_result = np.empty((n_blocks, n_blocks))
+    for i in range(n_blocks):
+        i_b = i * block_size
+        for j in range(n_blocks):
+            j_b = j * block_size
+            block = data_square[i_b:i_b+block_size, j_b:j_b+block_size]
+            data_result[i, j] = np.average(block)
+    return data_result
+
+
+def block_average_1d_dump(data: np.ndarray, block_size: int) -> np.ndarray:
+    """Downscale a numpy array in a 1D manner.
+    There's probably a numpy function to do this block-by-block averaging, but I can't find one."""
+    assert data.shape[0] % block_size == 0
+    n_blocks = data.shape[0] // block_size
+    assert n_blocks > 0
+    data_result = np.empty((n_blocks,))
+    for i in range(n_blocks):
+        i_b = i * block_size
+        block = data[i_b:i_b+block_size]
+        data_result[i] = np.average(block)
+    return data_result
+
+
 def test() -> None:
     test_bit_difference()
     test_hex4()
@@ -1581,9 +1614,6 @@ def main_gold_puf_grid() -> None:
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-rad\RT-30s-20dumps.txt-results\Gold-PUF.npy",
     ]
 
-    if not file_list:
-        file_list = ask_file_list()
-
     print("Input files:")
     for f in file_list:
         print(f"- '{f}'")
@@ -1667,13 +1697,12 @@ def main_convert_dump_file() -> None:
 
         
 def main() -> None:
-    print("main(): Running\n")
+    print("INFO: started")
 
     # Uncomment one of the calls below...
-
     # main_convert_dump_file()
     # main_directly_compare_dumps()
-    # main_generate_plots_in_dirs()
+    main_generate_plots_in_dirs()
     # main_create_gold_puf()
     # main_generate_plots_in_dir()
     # main_create_gold_puf()
@@ -1681,7 +1710,7 @@ def main() -> None:
     # main_stable_puf_grid()
     # main_stable_multi_chip_grid()
 
-    print("\nmain(): Done")
+    print("\nINFO: finished")
 
 
 if __name__ == '__main__':

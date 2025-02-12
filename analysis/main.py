@@ -594,34 +594,6 @@ def convert_words_to_image(words: np.ndarray, img_width: int, img_height: int) -
     return bits_2d
 
 
-def data_loss_percent(pu_read: np.ndarray, data_original: np.ndarray, pu_ref: np.ndarray) -> float:
-    '''
-    Data Loss % = [# of set bits(Image_original XOR PU_read)]/[# of set bits(Image_original XOR PU_ref)] * 100%.
-    '''
-    set_bits_1 = bit_differences(data_original, pu_read)
-    set_bits_2 = bit_differences(data_original, pu_ref)
-    return percent(set_bits_1, set_bits_2)
-
-
-def test_data_loss_percent():
-    # incomplete tests (just silly)
-    print('start testing data_loss_percent() ...')
-    data1 = [1,2,3]
-    data2 = [2,2,3]
-    data3 = [3,3,3]
-    assert(data_loss_percent(data1, data1, data3) == 0.0)
-    assert(data_loss_percent(data2, data2, data3) == 0.0)
-    assert(data_loss_percent(data1, data2, data3) == 100)
-    
-    data1 = np.array(data1)
-    data2 = np.array(data2)
-    data3 = np.array(data3)
-    assert(data_loss_percent(data1, data1, data3) == 0.0)
-    assert(data_loss_percent(data2, data2, data3) == 0.0)
-    assert(data_loss_percent(data1, data2, data3) == 100)
-    print('done testing data_loss_percent()')
-
-
 def files_read_and_calc_data_loss(pu_read_file, data_original_file, pu_ref_file, num_words: int, num_word_skip: int = 0) -> float:
     '''
     Data Loss % = [# of set bits(Image_original XOR PU_read)] / [# of set bits(Image_original XOR PU_ref)] * 100%.

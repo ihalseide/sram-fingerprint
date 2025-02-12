@@ -956,27 +956,27 @@ def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words
     num_bits = num_words * BITS_PER_WORD
 
     # Extract chip name from file path
-    name_match = re.search(r"(\w+)-([0-9a-z]+)nm-([0-9a-z]+)", in_path, re.IGNORECASE)
+    name_match = re.search(r"(\w+)-([0-9a-z]+nm-)?([0-9a-z]+)", in_path, re.IGNORECASE)
     if name_match is None:
         raise ValueError("Could not find the chip name in file path")
-    name_whole = name_match.group(0)
-    # name_man = name_match.group(1)
-    # name_nm = name_match.group(2)
-    # name_num = name_match.group(3)
+    name_man = name_match.group(1)
+    name_num = name_match.group(3)
+    chip_tag = f"{name_man} #{name_num}"
+    print(f"Chip name tag is \"{chip_tag}\"")
 
     # Check if pre-loaded captures numpy file already exists
     captures_npy_file_exists = False
-    for reduced_captures_num in range(num_captures, max(1,num_captures-10), -1):
+    for reduced_captures_num in range(num_captures, max(1, num_captures - 10), -1):
         captures_data_file_name = os.path.join(out_path, f"Captures-{reduced_captures_num}.npy")
         captures_npy_file_exists = os.path.isfile(captures_data_file_name)
         if captures_npy_file_exists:
             break
 
-    print("Loading data")
     if captures_npy_file_exists:
-        print("Found numpy data file to load instead")
+        print("Loading pre-existing numpy data file...")
         captures_data = np.load(captures_data_file_name)
     else:
+        print("Loading captures .txt file...")
         with open(in_path, "r") as hex_dump_in:
             try:
                 captures_data = file_load_captures_fallback(hex_dump_in, num_captures=num_captures, num_words=num_words)
@@ -986,8 +986,8 @@ def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words
         
     loaded_num_captures = captures_data.shape[0]
     if loaded_num_captures != num_captures:
-        print(f"NOTE: only able to load {loaded_num_captures}/{num_captures} captures!")
-        print(f"Continuing with {loaded_num_captures} captures...")
+        print(f"NOTE: only able to load {loaded_num_captures} out of the desired {num_captures} captures!")
+        print(f"Continuing anyways with {loaded_num_captures} captures...")
         num_captures = loaded_num_captures
     
     print("Combining captures")
@@ -1024,7 +1024,7 @@ def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words
         # Make linear plot
         f = plt.figure()
         ax = f.gca()
-        ax.set_title(f"{name_whole} Histogram of power-up 1's")
+        ax.set_title(f"{chip_tag} Histogram of power-up 1's")
         ax.set_xlabel("Times appeared as a 1")
         ax.set_ylabel("Bits")
         # ax.hist(binary_votes, max_votes_num + 1, align='mid')
@@ -1086,10 +1086,11 @@ def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words
     gold_puf_fname1 = os.path.join(out_path, "Gold-PUF.txt")
     gold_puf_npy_fname = os.path.join(out_path, "Gold-PUF.npy")
     gold_puf_num_captures = num_captures
-    if os.path.isfile(gold_puf_fname1):
+    if os.path.isfile(gold_puf_npy_fname):
+        print("Loading pre-existing .npy gold PUF file")
         gold_puf_data = np.load(gold_puf_npy_fname)
     else:
-        print("Creating gold PUF")
+        print("Creating gold PUF .txt and .npy files")
         # Force the number of captures for the gold PUF to be odd (by excluding the last one)
         if gold_puf_num_captures % 2 == 0:
             gold_puf_num_captures -= 1
@@ -1120,33 +1121,33 @@ def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words
             print(f"{i}: HW={percent(hw, num_bits):.3f}%; HD={percent(hd, num_bits):.3f}%", file=hdistances_file_out)
         min_hw, max_hw = float(np.min(hweights)), float(np.max(hweights))
         min_hd, max_hd = float(np.min(hdistances)), float(np.max(hdistances))
-        print(f"PUF: HW={percent(puf_hweight, num_bits):.3f}%; HD={percent(0, num_bits):.3f}%", file=hdistances_file_out)
+        print(f"PUF: HW={percent(puf_hweight, num_bits):.3f}%", file=hdistances_file_out)
         print(f"Min: HW={percent(min_hw, num_bits):.3f}%; HD={percent(min_hd, num_bits):.3f}%", file=hdistances_file_out)
         print(f"Max: HW={percent(max_hw, num_bits):.3f}%; HD={percent(max_hd, num_bits):.3f}%", file=hdistances_file_out)
         print(f"Mean: HW={percent(hweight_avg, num_bits):.3f}%; HD={percent(hdistances_avg, num_bits):.3f}%", file=hdistances_file_out)
 
     # Create different sample images from the gold PUF
-    sizes = (64, 128, 256, 512, 1024, 2048)
+    sizes = (128, 256, 512, 1024)
     offset = 0
     offset_str = f"0x{offset:X}"
     for size in sizes:
         # "Salt and pepper" image
         s_and_p_path = os.path.join(out_path, f"Salt-and-pepper-{size}x{size}-at-{offset_str}.png")
-        create_salt_and_pepper_fig(s_and_p_path, gold_puf_data, size, size, f"{name_whole} Gold PUF {size}x{size} at {offset_str}", offset)
+        create_salt_and_pepper_fig(s_and_p_path, gold_puf_data, size, size, f"{chip_tag} Gold PUF {size}x{size} at {offset_str}", offset)
         # Heatmap image
         heatmap_path = os.path.join(out_path, f"Heatmap-{size}x{size}-at-{offset_str}.png")
-        create_heatmap_fig(heatmap_path, captures_bit_votes/num_captures, size, size, f"{name_whole} Bit State Heatmap at {offset_str}", offset)
+        create_heatmap_fig(heatmap_path, captures_bit_votes/num_captures, size, size, f"{chip_tag} Bit State Heatmap at {offset_str}", offset)
 
     # Full-chip images...
     full_size = int(NUM_BITS**0.5)
 
     # Full-chip salt-and-pepper image
     s_and_p_path = os.path.join(out_path, f"Salt-and-pepper-full.png")
-    create_salt_and_pepper_fig(s_and_p_path, gold_puf_data, full_size, full_size, f"{name_whole} Gold PUF")
+    create_salt_and_pepper_fig(s_and_p_path, gold_puf_data, full_size, full_size, f"{chip_tag} Gold PUF")
 
     # Full-chip Heatmap image
     heatmap_path = os.path.join(out_path, f"Heatmap-full.png")
-    create_heatmap_fig(heatmap_path, captures_bit_votes/num_captures, full_size, full_size, f"{name_whole} Bit State Heatmap")
+    create_heatmap_fig(heatmap_path, captures_bit_votes/num_captures, full_size, full_size, f"{chip_tag} Bit State Heatmap")
 
     # Modified heatmap image(s)
     highlight_color = np.array([0.05, 0.05, 0.95])
@@ -1164,28 +1165,7 @@ def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words
     }
     for file_name, cmap in views.items():
         heatmap_path_2 = os.path.join(out_path, file_name)
-        create_heatmap_fig_2(heatmap_path_2, captures_bit_votes/num_captures, full_size, full_size, f"{name_whole} Stable Bit Heatmap", cmap=cmap)
-
-
-def ask_file_list() -> list[str]:
-    result = []
-
-    base_path = input("Enter file directory base path (and maybe the common prefix for the file names): ")
-    print("Add files to compare, one by one (entering a blank line will stop adding file)...")
-
-    while f := input("add file: "):
-        # This is intentionally string concatenation, not path concatenation!
-        path = base_path + f
-
-        if os.path.isfile(path):
-            result.append(base_path + f)
-            print(f"Added '{path}'")
-        else:
-            print(f"Skipped adding '{path}' because it is NOT a valid file path")
-    
-    print("(end of list)")
-
-    return result
+        create_heatmap_fig_2(heatmap_path_2, captures_bit_votes/num_captures, full_size, full_size, f"{chip_tag} Stable Bit Heatmap", cmap=cmap)
     
 
 def file_list_diff_print(num_words, file_list: list[str]) -> None:
@@ -1283,7 +1263,10 @@ def file_list_stable_diff_save(num_words, file_list: list[str], cmat_fname: str,
 
 TemplateFileGroup = namedtuple("TemplateFileGroup", ["name", "chip_votes_file_list"])
 
-def multi_template_chip_diff(stability_threshold: float, template_file_groups: list[TemplateFileGroup], chip_file_list: list[str]) -> np.ndarray:
+def multi_template_chip_diff(template_file_groups: list[TemplateFileGroup], chip_file_list: list[str], threshold_low: float, threshold_high: float) -> np.ndarray:
+    assert 0 <= threshold_low <= 100
+    assert 0 <= threshold_high <= 100
+
     n_templates = len(template_file_groups)
     n_chips = len(chip_file_list)
     mat = np.empty((n_templates, n_chips))
@@ -1295,8 +1278,10 @@ def multi_template_chip_diff(stability_threshold: float, template_file_groups: l
         captures_and_votes = []
         for chip1_filename in group.chip_votes_file_list:
             # Get max vote count a.k.a number of trials from the filename
+            # This is a PUF-like result
             m = re.search(r"Votes-(\d+)", chip1_filename)
-            assert m is not None
+            if m is None:
+                raise ValueError(f"Votes file name is invalid: {chip1_filename}")
             num_trials = int(m.group(1))
             votes = np.load(chip1_filename)
             captures_and_votes.append( (num_trials, votes) )
@@ -1306,11 +1291,12 @@ def multi_template_chip_diff(stability_threshold: float, template_file_groups: l
 
         for j, chip_puf_filename in enumerate(chip_file_list):
             chip_puf = np.load(chip_puf_filename)
-            # Below, num_trials=1 because create_multi_votes() already divides by the total num_trials internally
-            d = heatmap_vote_distance(num_trials=1,
-                                      stability_threshold_a=stability_threshold, 
-                                    votes_a=template_votes,
-                                    words_b=chip_puf)
+            # Below, num_trials=1 because create_multi_votes() above already divides by the total num_trials internally
+            d = heatmap_vote_distance_2(num_trials=1,
+                                      threshold_low=threshold_low,
+                                      threshold_high=threshold_high,
+                                      votes_a=template_votes,
+                                      words_b=chip_puf)
             # Divide by NUM_BITS to get a value from 0.0 to 1.0 for each bit
             mat[i, j] =  1.0 - d / NUM_BITS
 
@@ -1319,10 +1305,25 @@ def multi_template_chip_diff(stability_threshold: float, template_file_groups: l
 
 def heatmap_vote_distance(num_trials: int, stability_threshold_a: float, votes_a: np.ndarray, words_b: np.ndarray) -> int:
     """Stability threshold for how stable a bit has to be in order to keep it"""
-    votes_a_stab = 2.0 * np.abs(votes_a/num_trials - 0.5) # Remap vote count to stability
+    assert 0 <= stability_threshold_a <= 100
+    votes_a_stab = 2.0 * np.abs(votes_a / num_trials - 0.5) # Remap vote count to stability
     keep_mask = np.zeros(votes_a.shape, dtype="int")
     keep_mask[votes_a_stab >= stability_threshold_a] = 1
-    words_a = create_puf_np(votes_a, (num_trials+1)//2)
+    words_a = create_puf_np(votes_a, (num_trials + 1) // 2)
+    diff = np.bitwise_xor(words_a, words_b)
+    diff_bits = words_to_bits_np(diff)
+    diff_keep = np.bitwise_and(diff_bits, keep_mask)
+    return np.sum(diff_keep)
+
+
+def heatmap_vote_distance_2(num_trials: int, threshold_low: float, threshold_high: float, votes_a: np.ndarray, words_b: np.ndarray) -> int:
+    """Vote thresholds for how biased a bit has to be in order to keep it"""
+    assert 0 <= threshold_low <= 100
+    assert 0 <= threshold_high <= 100
+    keep_mask = np.zeros(votes_a.shape, dtype="int")
+    keep_mask[votes_a >= threshold_high] = 1
+    keep_mask[votes_a <= threshold_low] = 1
+    words_a = create_puf_np(votes_a, (num_trials + 1) // 2)
     diff = np.bitwise_xor(words_a, words_b)
     diff_bits = words_to_bits_np(diff)
     diff_keep = np.bitwise_and(diff_bits, keep_mask)
@@ -1392,7 +1393,7 @@ def path_to_chipname(path: str) -> str:
     """Shorten path with a chip name like "XYZ-100nm-PQR" in it to just the chip name"""
     m = re.search(r"\\([^\\-]+-[^\\-]*nm-[^\\-]*)", path)
     if not m:
-        raise ValueError()
+        raise ValueError("could not find a chip name of a specific format")
     return m.group(1)
 
 
@@ -1505,10 +1506,13 @@ def main_stable_multi_chip_grid() -> None:
     ]
 
     fname1 = "Multi-HD-matrix.npy"
-    stability_threshold = 0.95
+    threshold_percent_0 = 5
+    threshold_percent_1 = 95
+    assert 0 <= threshold_percent_0 <= 100
+    assert 0 <= threshold_percent_1 <= 100
     if not os.path.isfile(fname1):
-        print(f"Creating matrix file \"{fname1}\". Stability threshold = {stability_threshold}")
-        matrix = multi_template_chip_diff(stability_threshold, chip_template_groups, chip_files)
+        print(f"Creating matrix file \"{fname1}\". Excluded middlie = {threshold_percent_0}%...{threshold_percent_1}%")
+        matrix = multi_template_chip_diff(chip_template_groups, chip_files, threshold_percent_0 / 100, threshold_percent_1 / 100)
         np.save(fname1, matrix)
     else:
         print(f"Loading matrix file \"{fname1}\"")
@@ -1612,64 +1616,8 @@ def main_generate_plots_in_dir() -> None:
 
 def main_generate_plots_in_dirs() -> None:
     paths: list[str] = [
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\RT_maybe-30s-50dumps-2024.10.22.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\0C-30s-50dumps-2024.10.23.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\0C-240s-50dumps-2024.10.25.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\30C-30s-50dumps-2024.11.05.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\50C-30s-50dumps-2024.10.22.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\50C-30s-50dumps-2024.10.21.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\RT-30s-50dumps-2024.10.21.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\0C-30s-50dumps-2024.10.23.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\0C-240s-50dumps-2024.10.25.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\30C-30s-50dumps-2024.11.05.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\0C-30s-50dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\30C-60s-50dumps-2024.11.05.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\50C-30s-50dumps-2024.10.24.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\RT-30s-50dumps-2022.10.22.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1\50_captures_15_second_delay.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1-rad\RT-15s-20dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-2\50_captures_15_second_delay_cap.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-2\50_captures_15_second_delay.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-LP-1\50C-60s-50dumps-2024.11.08.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-LP-1\0C-240s-50dumps-2024.11.01.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-Z\RT-30s-50dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-2\50_captures_15_second_delay_cap.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-2\50_captures_15_second_delay.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-3\50_captures_15_second_delay_cap.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-3\50_captures_15_second_delay.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-4\50_captures_15_second_delay_cap.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-4\35_captures_15_second_delay_cap.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-4\50_captures_15_second_delay.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-5\RT-30s-50dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\RT-30s-50dumps-2024.10.22.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\0C-30s-50dumps-2024.10.23.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\0C-240s-50dumps-2024.10.25.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\30C-30s-24dumps-2024.10.31.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\30C-60s-50dumps-2024.11.01.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\50C-30s-50dumps-2024.10.22-incomplete.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\50C-60s-50dumps-2024.11.08.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\RT-30s-50dumps-2024.10.22.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\0C-30s-50dumps-2024.10.23.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\0C-240s-50dumps-2024.10.25.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\30C-60s-25dumps-2024.10.31.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\30C-60s-50dumps-2024.11.01.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\50C-30s-50dumps-2024.10.21.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\2024.10.22-normal-30s-50dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\0C-30s-50dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\0C-240s-50dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\30C-60s-50dumps-2024.11.05.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\50C-30s-50dumps-2024.10.24.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-4\RT-60s-50dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-rad\RT-30s-20dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay_inductor.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay_cap.txt",
-
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-4\RT-30s-50dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-5\RT-30s-50dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT-Xnm-2\RT-60s-50dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT-Xnm-3\RT-60s-50dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT-Xnm-4\RT-60s-50dumps.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-1\RT-30s-50dumps.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-2\RT-30s-50dumps.txt",
     ]
 
     start1 = timer()
@@ -1681,10 +1629,10 @@ def main_generate_plots_in_dirs() -> None:
         start2 = timer()
         lots_of_plots_run1(in_path=p, out_path=p2, num_captures=50, num_words=NUM_WORDS)
         duration2 = timer() - start2
-        print(f"Single run time: {duration2:.02f}")
+        print(f"Single run time: {duration2:.02f}s")
         print()
     duration1 = timer() - start1
-    print(f"Total elapsed time: {duration1:.02f}")
+    print(f"Total elapsed time: {duration1:.02f}s")
 
 
 def hamming_distance_npy(file_path1: str, file_path2: str) -> int:

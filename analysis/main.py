@@ -13,7 +13,7 @@ from typing import BinaryIO, Iterable, TextIO
 from collections import namedtuple
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.stats import stats
+from scipy.stats import pearsonr
 from matplotlib.colors import ListedColormap
 
 
@@ -587,7 +587,7 @@ def convert_words_to_image(words: np.ndarray, img_width: int, img_height: int) -
                 row = i // img_width
                 col = i % img_width
                 # set image bit to 1 if bit #'bit_i' is 1 (note that the 2d bits array is already initialized to 0)
-                if (word & (1 << (15 - bit_i))):
+                if (word & (1 << (16 - 1 - bit_i))):
                     bits_2d[row, col] = 1
         except IndexError:
             break
@@ -1188,7 +1188,7 @@ def file_list_diff_print(num_words, file_list: list[str]) -> None:
             p = percent(diff, num_words * BITS_PER_WORD)
             print(f"* HD = {p:.3f}%")
 
-            c = stats.pearsonr(data_a, data_b).correlation
+            c = pearsonr(data_a, data_b).correlation
             print(f"* Pearson correlation = {c:.4f}")
             n += 1
 
@@ -1222,7 +1222,7 @@ def file_list_diff_save(num_words, file_list: list[str], cmat_fname: str, hdmat_
             print(f"Comparing {path_a_short} with {path_b_short}")
 
             mat_hd[i, j] = np.sum(hw_vec_fn(np.bitwise_xor(data_a, data_b))) / num_bits
-            mat_c[i, j] = stats.pearsonr(data_a, data_b).correlation
+            mat_c[i, j] = pearsonr(data_a, data_b).correlation
 
     np.save(hdmat_fname, mat_hd)
     np.save(cmat_fname, mat_c)
@@ -1358,10 +1358,12 @@ def plot_correlation_matrix(file_list: list[str], file_path: str, **kwargs) -> N
 
 
 def plot_correlation_matrix_2(matrix: np.ndarray, xlabels: list[str], ylabels: list[str], **kwargs) -> None:
-    assert (len(ylabels), len(xlabels)) == matrix.shape
+    assert (len(ylabels), len(xlabels)) == matrix.shape, "Mismatch between matrix shape and the labels"
     f = plt.figure(1)
-    ai = plt.matshow(matrix, 1)
-    #ai = plt.matshow(matrix, 1, vmin=0, vmax=1)
+    if (vmin := kwargs.get("vmin")) and (vmax := kwargs.get("vmax")):
+        ai = plt.matshow(matrix, 1, vmin=vmin, vmax=vmax)
+    else:
+         ai = plt.matshow(matrix, 1)
     ax = f.gca()
     f.colorbar(ai)
     ax.xaxis.tick_bottom()
@@ -1391,11 +1393,10 @@ def create_multi_votes(captures_and_votes: list[tuple[int, np.ndarray]]) -> np.n
 
 def path_to_chipname(path: str) -> str:
     """Shorten path with a chip name like "XYZ-100nm-PQR" in it to just the chip name"""
-    m = re.search(r"\\([^\\-]+-[^\\-]*nm-[^\\-]*)", path)
+    m = re.search(r"\\(\w+)-[^\\-]*n?m?-(\d+)\\", path)
     if not m:
         raise ValueError("could not find a chip name of a specific format")
-    return m.group(1)
-
+    return f"{m.group(1)}-{m.group(2)}"
 
 
 def block_average_2d_dump(data: np.ndarray, block_size: int) -> np.ndarray:
@@ -1430,33 +1431,79 @@ def block_average_1d_dump(data: np.ndarray, block_size: int) -> np.ndarray:
     return data_result
 
 
-def test() -> None:
-    test_bit_difference()
-    test_hex4()
-    test_data_loss_percent()
+def main_experiment_with_blocking() -> None:
+    path_a = r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-5\RT-30s-50dumps.txt-results\Gold-PUF.npy"
+    path_b = r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-2\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy"
+    block_size = 64
+
+    print(f"Comparing A & B")
+    print(f"* A: {path_a}")
+    print(f"* B: {path_b}")
+
+    data_original_a = np.load(path_a)
+    print(f"A shape = {data_original_a.shape}")
+    data_original_b = np.load(path_b)
+    print(f"B shape = {data_original_b.shape}")
+
+    for block_size in [4, 16, 64, 256]:
+        data_a = block_average_2d_dump(data_original_a, block_size)
+        data_b = block_average_2d_dump(data_original_b, block_size)
+        c = pearsonr(data_a.flatten(), data_b.flatten()).correlation
+        print(f"2D block size = {block_size} words ==> Pearson correlation = {c}")
 
 
-def test_bit_difference() -> None:
-    # print("begin testing")
-    assert(bit_difference(0, 0) == 0)
-    assert(bit_difference(0, 1) == 1)
-    assert(bit_difference(1, 0) == 1)
-    assert(bit_difference(1, 1) == 0)
-    assert(bit_difference(3, 1) == 1)
-    assert(bit_difference(7, 0) == 3)
-    assert(bit_difference(0xf, 0) == 4)
-    assert(bit_difference(0xff, 0) == 8)
-    assert(bit_difference(0xffff, 0) == 16)
-    assert(bit_difference(0b1010101010101010, 0b0101010101010101) == 16)
-    assert(bit_difference(0xf00f, 0) == 8)
-    assert(bit_difference(0xf00f, 0xffff) == 8)
-    # print("end testing")
+def chip_block_correlation_matrix(chip_files_x: list[str], chip_files_y: list[str], block_size: int) -> np.ndarray:
+    corr_matrix = np.full((len(chip_files_y), len(chip_files_x)), float("NaN"))
+
+    # Create block-averaged data for each list of files
+    data_xs = [ block_average_2d_dump(np.load(path), block_size) for path in chip_files_x ]
+    data_ys = [ block_average_2d_dump(np.load(path), block_size) for path in chip_files_y ]
+
+    # Put X<=>Y correlations in matrix cells
+    for y, data_y in enumerate(data_ys):
+        flat_y = data_y.flatten()
+        for x, data_x in enumerate(data_xs):
+            if x >= y: break
+            flat_x = data_x.flatten()
+            corr_matrix[y, x] = pearsonr(flat_x, flat_y).correlation
+
+    return corr_matrix
 
 
-def test_hex4() -> None:
-    assert(hex4(0) == '0000')
-    assert(hex4(1) == '0001')
-    assert(hex4(0xff) == '00FF')
+def main_2d_blocking_correlation_matrix() -> None:
+    chip_files = [
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-5\RT-30s-50dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-4\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-3\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-2\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-5\RT-30s-50dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-4\RT-30s-50dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-3\RT-30s-50dumps-2022.10.22.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-2\RT-30s-50dumps-2024.10.21.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-1\30C-30s-50dumps-2024.11.05.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY1-90nm-2\RT-30s-50dumps.txt-results\Gold-PUF.npy",
+    ]
+
+    for block_size in [ 16, 64, 128, ]:
+        matrix_filename = f"Blocking2D-{block_size}B-Pearson-matrix.npy"
+        if not os.path.isfile(matrix_filename):
+            # Create and cache this matrix file for later runs of this script
+            print(f"Creating matrix file \"{matrix_filename}\"")
+            matrix = chip_block_correlation_matrix(chip_files, chip_files, block_size)
+            np.save(matrix_filename, matrix)
+        else:
+            # Load a previously cached file
+            print(f"Loading matrix file \"{matrix_filename}\"")
+            matrix = np.load(matrix_filename)
+        labels_x = labels_y = list(map(path_to_chipname, chip_files))
+        plot_correlation_matrix_2(matrix,
+                                  labels_x,
+                                  labels_y,
+                                  title=f"Pearson Correlation of Gold PUFs with Block Size {block_size}",
+                                  ylabel="Chip gold PUF",
+                                  xlabel="Chip gold PUF",
+                                  vmin=-1,
+                                  vmax=1)
 
 
 def main_create_gold_puf() -> None:
@@ -1702,13 +1749,15 @@ def main() -> None:
     # Uncomment one of the calls below...
     # main_convert_dump_file()
     # main_directly_compare_dumps()
-    main_generate_plots_in_dirs()
+    # main_generate_plots_in_dirs()
     # main_create_gold_puf()
     # main_generate_plots_in_dir()
     # main_create_gold_puf()
     # main_gold_puf_grid()
     # main_stable_puf_grid()
     # main_stable_multi_chip_grid()
+    # main_experiment_with_blocking()
+    main_2d_blocking_correlation_matrix()
 
     print("\nINFO: finished")
 

@@ -1,14 +1,20 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.stats import stats
-from matplotlib.colors import ListedColormap
+"""
+This is code for SRAM memory dump data analysis.
+There are multiple "main" functions which all have names that start with "main_"
+that are like scripts to create different plots and files from input data dump text files.
+"""
+
 
 import os, sys, re
 from typing import Any
 from timeit import default_timer as timer
 from operator import xor
 from typing import BinaryIO, Iterable, TextIO
-from collections import defaultdict, namedtuple
+from collections import namedtuple
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import stats
+from matplotlib.colors import ListedColormap
 
 
 BITS_PER_WORD = 16 # SRAM bits per word
@@ -938,7 +944,7 @@ def create_heatmap_fig_2(file_path: str, bit_vote_counts: np.ndarray, width: int
 
 
 def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words: int):
-    '''Process one multi-dump input file and generate the relevant report files into the out_path directory'''
+    '''Process one multi-dump input file and generate the relevant report .txt, .npy, and .png files into the out_path directory'''
 
     if not os.path.isfile(in_path):
         print(f"ERROR: path \"{in_path}\" is not a valid path for a file")

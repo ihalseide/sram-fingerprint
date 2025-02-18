@@ -1367,7 +1367,9 @@ def path_to_chipname(path: str) -> str:
     """Shorten path with a chip name like "XYZ-100nm-PQR" in it to just the chip name"""
     m = re.search(r"\\(\w+)-[^\\-]*n?m?-(\d+)\\", path)
     if not m:
-        raise ValueError("could not find a chip name of a specific format")
+        # Handle names like "IDT1-1" that don't have a <#>nm specified
+        # raise ValueError(f"could not find a chip name of a specific format within \"{path}\"")
+        m = re.search(r"\\([A-Z]+\d+)-(\d+)\\", path)
     return f"{m.group(1)}-{m.group(2)}"
 
 
@@ -1444,7 +1446,9 @@ def chip_block_correlation_matrix(chip_files_x: list[str], chip_files_y: list[st
 
 def stability_bins(multi_dumps: np.ndarray, num_words: int=NUM_WORDS, num_bins: int=50) -> np.ndarray:
     """Create the "histogram" of bit stability votes for a multi-capture array of dumps."""
-    assert len(multi_dumps.shape) == 2 and multi_dumps.shape[0] >= num_bins and multi_dumps.shape[1] >= num_words
+    assert len(multi_dumps.shape) == 2, "expected `multi_dumps` to be an array of dump arrays"
+    assert multi_dumps.shape[0] >= num_bins, f"expected {num_bins} dumps but only got {multi_dumps.shape[0]}"
+    assert multi_dumps.shape[1] >= num_words, f"expected {num_words} words in each dump but only got {multi_dumps.shape[1]}"
     bit_votes = create_votes_np(multi_dumps[:num_bins, :num_words])
     _, counts = np.unique(bit_votes, return_counts=True)
     return counts
@@ -1455,14 +1459,17 @@ def chip_stability_distance_matrix(chip_files_x: list[str], chip_files_y: list[s
 
     # Create stability bins "histogram" from the captures files
     data_xs = [ stability_bins(np.load(path), num_words, num_dumps) / num_words for path in chip_files_x ]
-    data_ys = [ stability_bins(np.load(path), num_words, num_dumps) / num_words for path in chip_files_y ]
+    #data_ys = [ stability_bins(np.load(path), num_words, num_dumps) / num_words for path in chip_files_y ]
+    data_ys = data_xs
 
     # Put X<=>Y correlations in matrix cells
     for y, data_y in enumerate(data_ys):
         for x, data_x in enumerate(data_xs):
             # Don't process extra cells on the other side of the diagonal
             if x >= y: break
-            corr_matrix[y, x] = float(np.linalg.norm(data_x - data_y))
+            # corr_matrix[y, x] = float(np.linalg.norm(data_x - data_y))
+            # corr_matrix[y, x] = float(np.sum(np.abs((data_x - data_y)**3))**(1/3))
+            corr_matrix[y, x] = pearsonr(data_x, data_y).correlation
 
     return corr_matrix
 
@@ -1470,37 +1477,49 @@ def chip_stability_distance_matrix(chip_files_x: list[str], chip_files_y: list[s
 def main_stability_distance_matrix() -> None:
     """Correlation matrix of 50x PUF files."""
 
+    matrix_filename = f"Stability-Dist-Matrix-Correlation.npy"
+
     chip_files = [
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-5\RT-30s-50dumps.txt-results\Captures-41.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-4\50_captures_15_second_delay.txt-results\Captures-50.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-3\50_captures_15_second_delay.txt-results\Captures-50.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-2\50_captures_15_second_delay.txt-results\Captures-50.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-5\RT-30s-50dumps.txt-results\Captures-41.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-4\RT-30s-50dumps.txt-results\Captures-41.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-3\RT-30s-50dumps-2022.10.22.txt-results\Captures-50.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-2\RT-30s-50dumps-2024.10.21.txt-results\Captures-50.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-1\30C-30s-50dumps-2024.11.05.txt-results\Captures-50.npy",
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY1-90nm-2\RT-30s-50dumps.txt-results\Captures-50.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-4\RT-60s-50dumps.txt-results\Captures-41.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-3\2024.10.22-normal-30s-50dumps.txt-results\Captures-50.npy",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY2-90nm-1\0C-240s-50dumps-2024.11.01.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-1\30C-30s-50dumps-2024.11.05.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-2\RT-30s-50dumps-2024.10.21.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-3\RT-30s-50dumps-2022.10.22.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-4\RT-30s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-5\RT-30s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-2\50_captures_15_second_delay.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-3\50_captures_15_second_delay.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-4\50_captures_15_second_delay.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-5\RT-30s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-1\RT-30s-50dumps-2024.10.22.txt-results\Captures-50.npy",
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-2\RT-30s-50dumps-2024.10.22.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-3\2024.10.22-normal-30s-50dumps.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-4\RT-60s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT1-1\50_captures_15_second_delay.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT1-3\RT-60s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT1-4\RT-60s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT1-5\RT-60s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-1\RT-30s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-2\RT-30s-50dumps.txt-results\Captures-41.npy",
     ]
 
+    # Verify all of the file paths before trying to (slowly) load them, so I can see an error faster
     for path in chip_files:
         if not os.path.isfile(path):
             print(f"NOT a valid file path: {path}")
 
-    matrix_filename = f"Stability-Dist-Matrix.npy"
     if not os.path.isfile(matrix_filename):
         # Create and cache this matrix file for later runs of this script
         print(f"Creating new matrix file \"{matrix_filename}\"")
-        matrix = chip_stability_distance_matrix(chip_files, chip_files, num_dumps=45)
+        matrix = chip_stability_distance_matrix(chip_files, chip_files, num_dumps=40)
         np.save(matrix_filename, matrix)
     else:
         # Load a previously cached file
         print(f"Loading previous matrix file \"{matrix_filename}\"")
         matrix = np.load(matrix_filename)
+
     labels_x = labels_y = list(map(path_to_chipname, chip_files))
+
     plot_correlation_matrix_2(matrix, labels_x, labels_y,
                               title="Stability Distance",
                               ylabel="Chip",

@@ -1372,7 +1372,7 @@ def path_to_chipname(path: str) -> str:
 
 
 def block_average_2d_dump(data: np.ndarray, block_size: int) -> np.ndarray:
-    """Downscale a numpy array in a 2D manner.
+    """Downscale a numpy array in a 2D manner (returns a square 2D array).
     There's probably a numpy function to do this block-by-block averaging, but I can't find one."""
     data_square_size = int(data.shape[0] ** 0.5)
     assert data_square_size % block_size == 0
@@ -1442,7 +1442,74 @@ def chip_block_correlation_matrix(chip_files_x: list[str], chip_files_y: list[st
     return corr_matrix
 
 
+def stability_bins(multi_dumps: np.ndarray, num_words: int=NUM_WORDS, num_bins: int=50) -> np.ndarray:
+    """Create the "histogram" of bit stability votes for a multi-capture array of dumps."""
+    assert len(multi_dumps.shape) == 2 and multi_dumps.shape[0] >= num_bins and multi_dumps.shape[1] >= num_words
+    bit_votes = create_votes_np(multi_dumps[:num_bins, :num_words])
+    _, counts = np.unique(bit_votes, return_counts=True)
+    return counts
+
+
+def chip_stability_distance_matrix(chip_files_x: list[str], chip_files_y: list[str], num_words: int=NUM_WORDS, num_dumps: int=50) -> np.ndarray:
+    corr_matrix = np.full((len(chip_files_y), len(chip_files_x)), float("NaN"))
+
+    # Create stability bins "histogram" from the captures files
+    data_xs = [ stability_bins(np.load(path), num_words, num_dumps) / num_words for path in chip_files_x ]
+    data_ys = [ stability_bins(np.load(path), num_words, num_dumps) / num_words for path in chip_files_y ]
+
+    # Put X<=>Y correlations in matrix cells
+    for y, data_y in enumerate(data_ys):
+        for x, data_x in enumerate(data_xs):
+            # Don't process extra cells on the other side of the diagonal
+            if x >= y: break
+            corr_matrix[y, x] = float(np.linalg.norm(data_x - data_y))
+
+    return corr_matrix
+
+
+def main_stability_distance_matrix() -> None:
+    """Correlation matrix of 50x PUF files."""
+
+    chip_files = [
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-5\RT-30s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-4\50_captures_15_second_delay.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-3\50_captures_15_second_delay.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-2\50_captures_15_second_delay.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-5\RT-30s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-4\RT-30s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-3\RT-30s-50dumps-2022.10.22.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-2\RT-30s-50dumps-2024.10.21.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-1\30C-30s-50dumps-2024.11.05.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY1-90nm-2\RT-30s-50dumps.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-4\RT-60s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-3\2024.10.22-normal-30s-50dumps.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-2\RT-30s-50dumps-2024.10.22.txt-results\Captures-50.npy",
+    ]
+
+    for path in chip_files:
+        if not os.path.isfile(path):
+            print(f"NOT a valid file path: {path}")
+
+    matrix_filename = f"Stability-Dist-Matrix.npy"
+    if not os.path.isfile(matrix_filename):
+        # Create and cache this matrix file for later runs of this script
+        print(f"Creating new matrix file \"{matrix_filename}\"")
+        matrix = chip_stability_distance_matrix(chip_files, chip_files, num_dumps=45)
+        np.save(matrix_filename, matrix)
+    else:
+        # Load a previously cached file
+        print(f"Loading previous matrix file \"{matrix_filename}\"")
+        matrix = np.load(matrix_filename)
+    labels_x = labels_y = list(map(path_to_chipname, chip_files))
+    plot_correlation_matrix_2(matrix, labels_x, labels_y,
+                              title="Stability Distance",
+                              ylabel="Chip",
+                              xlabel="Chip")
+
+
 def main_2d_blocking_correlation_matrix() -> None:
+    """Correlation matrix of single chips Gold PUF files when averaged by square sub-blocks of the memory array viewed as a 2D square."""
+
     chip_files = [
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-5\RT-30s-50dumps.txt-results\Gold-PUF.npy",
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-4\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
@@ -1454,9 +1521,12 @@ def main_2d_blocking_correlation_matrix() -> None:
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-2\RT-30s-50dumps-2024.10.21.txt-results\Gold-PUF.npy",
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-1\30C-30s-50dumps-2024.11.05.txt-results\Gold-PUF.npy",
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY1-90nm-2\RT-30s-50dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-4\RT-60s-50dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-3\2024.10.22-normal-30s-50dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-2\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy",
     ]
 
-    for block_size in [ 16, 64, 128, ]:
+    for block_size in [ 64, 128, ]:
         matrix_filename = f"Blocking2D-{block_size}B-Pearson-matrix.npy"
         if not os.path.isfile(matrix_filename):
             # Create and cache this matrix file for later runs of this script
@@ -1476,43 +1546,6 @@ def main_2d_blocking_correlation_matrix() -> None:
                                   xlabel="Chip gold PUF",
                                   vmin=-1,
                                   vmax=1)
-
-
-def main_create_gold_puf() -> None:
-    num_captures = 11
-    assert(num_captures % 2 != 0) # must be odd so there are no voting ties
-    input_file_names = [ f"chip inh2 gold PUF/capture {i}.txt" for i in range(1, 1 + num_captures) ]
-    output_file_name = "chip inh2 gold PUF/gold PUF.txt"
-    
-    print(f"output file name: \"{output_file_name}\"")
-
-    # Array to map the data's bit index to number of votes that it should be set to a '1'
-    bit_votes_for_one = [ 0 for _ in range(NUM_BITS) ]
-
-    for file_name in input_file_names:
-        print(f"- loading file \"{file_name}\"")
-        with open(file_name, "r") as file_in:
-            # Read each data word from the data file
-            for word_i in range(NUM_WORDS):
-                word = file_read_next_hex4(file_in)
-                # Log the "bit vote" for each bit of the word
-                for word_bit_i in range(BITS_PER_WORD):
-                    bit_i = (word_i * BITS_PER_WORD) + word_bit_i
-                    # Test bit number 'bit_i' and increment a vote if it is set
-                    if word & (1 << word_bit_i):
-                        bit_votes_for_one[bit_i] += 1
-
-    # Iterate bit votes and print out best-voted word values
-    print(f"saving result to output file")
-    with open(output_file_name, "w") as file_out:
-        for word_i in range(NUM_WORDS):
-            word_value = 0
-            for word_bit_i in range(BITS_PER_WORD):
-                bit_i = (word_i * BITS_PER_WORD) + word_bit_i
-                # Resolve the bit votes to see if '1' or '0' wins the majority
-                if bit_votes_for_one[bit_i] > (num_captures // 2):
-                    word_value |= 1 << word_bit_i
-            print(f"{word_value:04X}", file=file_out)
 
 
 def main_stable_multi_chip_grid() -> None:
@@ -1539,9 +1572,9 @@ def main_stable_multi_chip_grid() -> None:
     ]
 
     chip_files = [
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\RT_maybe-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\RT-30s-50dumps-2024.10.21.txt-results\Gold-PUF.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\RT-30s-50dumps-2022.10.22.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-1\RT_maybe-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-2\RT-30s-50dumps-2024.10.21.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-3\RT-30s-50dumps-2022.10.22.txt-results\Gold-PUF.npy",
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-Z\RT-30s-50dumps.txt-results\Gold-PUF.npy",
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-2\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
@@ -1550,11 +1583,11 @@ def main_stable_multi_chip_grid() -> None:
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-4\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-5\RT-30s-50dumps.txt-results\Gold-PUF.npy",
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1-rad\RT-15s-20dumps.txt-results\Gold-PUF.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\2024.10.22-normal-30s-50dumps.txt-results\Gold-PUF.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-rad\RT-30s-20dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT1-1\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-1\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-2\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-3\2024.10.22-normal-30s-50dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-rad\RT-30s-20dumps.txt-results\Gold-PUF.npy",
     ]
 
     fname1 = "Multi-HD-matrix.npy"
@@ -1563,7 +1596,7 @@ def main_stable_multi_chip_grid() -> None:
     assert 0 <= threshold_percent_0 <= 100
     assert 0 <= threshold_percent_1 <= 100
     if not os.path.isfile(fname1):
-        print(f"Creating matrix file \"{fname1}\". Excluded middlie = {threshold_percent_0}%...{threshold_percent_1}%")
+        print(f"Creating matrix file \"{fname1}\". Excluded middle = {threshold_percent_0}%...{threshold_percent_1}%")
         matrix = multi_template_chip_diff(chip_template_groups, chip_files, threshold_percent_0 / 100, threshold_percent_1 / 100)
         np.save(fname1, matrix)
     else:
@@ -1729,7 +1762,9 @@ def main() -> None:
     # main_stable_puf_grid()
     # main_stable_multi_chip_grid()
     # main_experiment_with_blocking()
-    main_2d_blocking_correlation_matrix()
+    # main_2d_blocking_correlation_matrix()
+    # main_stability_distance()
+    main_stability_distance_matrix()
 
     print("\nINFO: finished")
 

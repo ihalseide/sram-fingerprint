@@ -1000,7 +1000,9 @@ def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words
         ax.set_xlabel("Times appeared as a 1")
         ax.set_ylabel("Bits")
         # ax.hist(binary_votes, max_votes_num + 1, align='mid')
-        ax.hist(captures_bit_votes, max_votes_num)
+        hist, bin_eds = np.histogram(captures_bit_votes, bins=np.arange(num_votes+2)-0.5)
+        # ax.hist(captures_bit_votes, max_votes_num)
+        ax.bar(bin_eds[:-1], hist, color='blue', edgecolor="black", width=0.7)
         f.savefig(os.path.join(out_path, f"Binary-votes-out-of-{num_votes}.png"))
         plt.close()
 
@@ -1719,6 +1721,20 @@ def main_generate_plots_in_dirs() -> None:
     paths: list[str] = [
         # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-1\RT-30s-50dumps.txt",
         # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-2\RT-30s-50dumps.txt",
+        
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI1-1\50_captures_15_second_delay.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI1-2\50_captures_15_second_delay.txt",
+        
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-3\RT-60s-50dumps.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-4\RT-60s-50dumps.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY3-90nm-1\RT-60s-50dumps.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-4\RT-60s-50dumps.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-4\errors-RT-30s-50dumps.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-5\RT-60s-50dumps.txt",
+
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-1\RT-60s-50dumps.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-2\RT-60s-50dumps.txt",
+
     ]
 
     start1 = timer()
@@ -1773,7 +1789,7 @@ def main() -> None:
     # Uncomment one of the calls below...
     # main_convert_dump_file()
     # main_directly_compare_dumps()
-    # main_generate_plots_in_dirs()
+    main_generate_plots_in_dirs()
     # main_create_gold_puf()
     # main_generate_plots_in_dir()
     # main_create_gold_puf()
@@ -1783,7 +1799,7 @@ def main() -> None:
     # main_experiment_with_blocking()
     # main_2d_blocking_correlation_matrix()
     # main_stability_distance()
-    main_stability_distance_matrix()
+    # main_stability_distance_matrix()
 
     print("\nINFO: finished")
 

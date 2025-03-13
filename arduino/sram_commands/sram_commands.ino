@@ -36,13 +36,27 @@ void setupControlPins() {
   pinMode(pin_nBLE, OUTPUT);
   pinMode(pin_nWE, OUTPUT);
   pinMode(pin_pmosGate, OUTPUT);
+  
+  // Make the pins for the SRAM address lines be outputs
+  for (int i = 0; i < AddressPinCount; i++) {
+    pinMode(addressPins[i], OUTPUT);
+  }
 }
 
 
-// Make the pins for the SRAM address lines be outputs
-void setupAddressPins() {
+void setAllPinsMode(int mode) {
+  pinMode(pin_nCE, mode);
+  pinMode(pin_nOE, mode);
+  pinMode(pin_nBHE, mode);
+  pinMode(pin_nBLE, mode);
+  pinMode(pin_nWE, mode);
+
   for (int i = 0; i < AddressPinCount; i++) {
-    pinMode(addressPins[i], OUTPUT);
+    pinMode(addressPins[i], mode);
+  }
+
+  for (uint16_t i = 0; i < DataPinCount; i++) {
+    pinMode(dataPins[i], mode);
   }
 }
 
@@ -107,8 +121,8 @@ uint16_t readDataPins() {
   // Setup control pins
   disableWrite();
   // The two calls below aren't needed because they are kept low from the very beginning.
-  // digitalWrite(pin_nBHE, LOW); // enable high byte
-  // digitalWrite(pin_nBLE, LOW); // enable low byte
+  digitalWrite(pin_nBHE, LOW); // enable high byte
+  digitalWrite(pin_nBLE, LOW); // enable low byte
   enableOutput();
 
   // Actually read the pin values
@@ -126,8 +140,8 @@ void writeDataPins(uint16_t value) {
   // Setup control pins
   disableOutput();
   // The two calls below aren't needed because they are kept low from the very beginning.
-  // digitalWrite(pin_nBHE, LOW); // enable high byte
-  // digitalWrite(pin_nBLE, LOW); // enable low byte
+  digitalWrite(pin_nBHE, LOW); // enable high byte
+  digitalWrite(pin_nBLE, LOW); // enable low byte
   enableWrite();
 
   // Actually write the value
@@ -1212,14 +1226,16 @@ void printChoices(void) {
   Serial.println("  8) sum up the Hamming weight on a memory range");
   Serial.println("  9) run remanence experiment 'custom'");
   Serial.println(" 10) run remanence experiment 'cumulative'");
-  Serial.println(" 11) [currently unused]");
-  Serial.println(" 12) [currently unused]");
+  Serial.println(" 11) invert memory contents");
+  Serial.println(" 12) set control and address pins to INPUT state");
   Serial.println(" 13) manual power cycle SRAM");
   Serial.println(" 14) do multiple sums of Hamming Weight");
   Serial.println(" 15) do experiment from command #6 multiple times");
   Serial.println(" 16) calculate Hamming distance between two SRAM chips");
   Serial.println(" 17) do a write/power-off/read cycle multiple times");
-  Serial.println(" 18) [currently unused]");
+  Serial.println(" 18) set control and address pins to INPUT state, except for the ChipEnable pin");
+  Serial.println(" 19) set control and address pins to INPUT_PULLUP state, except for the ChipEnable pin");
+  Serial.println(" 20) disable chip");
 }
 
 
@@ -1338,6 +1354,26 @@ void handleCommandNumber(int choice) {
       auto step_ms = (double) step_us / 1000.0;
       runCumulativeRemanenceExperiment(start_ms, stop_ms, step_ms);
       beep();
+    } break;
+  case 11:
+    {
+      // Invert memory contents
+      Serial.println("Inverting memory contents...");
+      for (int i = 0; i < NUM_WORDS; i++) {
+        writeWord(i, ~readWord(i));
+      }
+      Serial.println("Done.");
+    } break;
+  case 12:
+    {
+      // Set all pins to be INPUT
+      setAllPinsMode(INPUT);
+
+      Serial.println("Pins set to INPUT. Press enter to stop.");
+      serialPromptLine(nullptr, 0);
+
+      Serial.println("Setting pins back to normal states.");
+      setupControlPins();
     } break;
   case 13:
     {
@@ -1492,6 +1528,41 @@ void handleCommandNumber(int choice) {
       Serial.println("Done with command #17");
       beep();
     } break;
+  case 18:
+    {
+      // Set all pins except chip enable to high-impedance
+      setAllPinsMode(INPUT);
+      pinMode(pin_nCE, OUTPUT);
+      digitalWrite(pin_nCE, 0);
+
+      Serial.println("Pins set to INPUT, except ~CE = 0. Press enter to stop.");
+      serialPromptLine(nullptr, 0);
+
+      Serial.println("Setting pins back to normal states.");
+      setupControlPins();
+    } break;
+  case 19:
+    {
+      // Set all pins to be INPUT_PULLUP
+      setAllPinsMode(INPUT_PULLUP);
+
+      Serial.println("Pins set to INPUT_PULLUP. Press enter to stop.");
+      serialPromptLine(nullptr, 0);
+
+      Serial.println("Setting pins back to normal states.");
+      setupControlPins();
+    } break;
+  case 20:
+    {
+      // Set all pins to be INPUT_PULLUP
+      disableChip();
+
+      Serial.println("Chip disabled. Press enter to enable and continue.");
+      serialPromptLine(nullptr, 0);
+
+      Serial.println("Chip enabled.");
+      enableChip();
+    } break;
   default:
     {
       // Received an unhandled choice number
@@ -1509,12 +1580,11 @@ void setup() {
      * 115200 Baud (8N1) memory dump 250kWords took 109s
   */
   //Serial.begin(200000, SERIAL_8E1); // some errors occurr at 200kBaud
-  Serial.begin(180000, SERIAL_8E1);
+  Serial.begin(115200, SERIAL_8E1);
   Serial.println("Hello from Arduino!");
 
   // Setup pins to SRAM chip
   setupControlPins();
-  setupAddressPins();
 
   // These two calls ensure that the pins are in a known state.
   // * Specifically, the BLE and BHE pins should always be LOW!

@@ -308,32 +308,6 @@ long parseInt(const char *chars, size_t length, unsigned int base) {
 }
 
 
-// Set/write all of the addresses in a given region of SRAM to store the given value.
-void fillRangeOfSRAM(uint16_t value, uint32_t base_address, uint32_t count, unsigned int step, bool showProgress) {
-  auto lastTime = millis();
-  constexpr long progressInterval = 1000; // milliseconds
-
-  if (!step) {
-    // Prevent infinite loop that would happen if step == 0
-    return;
-  }
-
-  for (uint32_t i = 0; i < count; i += step) {
-    writeWord(base_address + i, value);
-
-    if (showProgress && (millis() - lastTime >= progressInterval)) {
-      lastTime = millis();
-      Serial.print('.');
-      Serial.flush();
-    }
-  }
-
-  if (showProgress) {
-    Serial.println();
-  }
-}
-
-
 void setAllPinsLow() {
   // Disable chip to prevent any side-effects from the next changes below
   disableChip();
@@ -373,27 +347,6 @@ void turnOnSRAM() {
 
   // Finally, re-enable the chip
   digitalWrite(pin_nCE, LOW);
-}
-
-
-// Check that the pMOS can actually power off an SRAM chip (by checking that there IS data loss after power-off then power-on)
-bool checkPowerControl() {
-  constexpr uint16_t value = 0x5A5A;
-  constexpr int start = 0, stop = 1028, step = 1;
-
-  fillRangeOfSRAM(value, start, stop, step, false);
-
-  powerCycleSRAM1(5000);
-
-  for (int i = start; i < stop; i += step) {
-    if (readWord(i) != value) {
-      // Data loss --> power cycle did work
-      return true;
-    }
-  }
-
-  // No data loss --> power cycle did not work
-  return false;
 }
 
 
@@ -468,12 +421,6 @@ uint32_t promptForDecimalNumber(const char *messagePrompt = nullptr) {
 }
 
 
-uint32_t promptForHexNumber(const char *messagePrompt = nullptr) {
-  if (messagePrompt && *messagePrompt) { Serial.print(messagePrompt); }
-  return promptInt(16);
-}
-
-
 // Read a given range of SRAM and print to serial
 // (NEW version 2 uses a space as a separator instead of a newline)
 void dumpRangeOfSRAM(uint32_t base_address, uint32_t count, unsigned int step) {
@@ -501,273 +448,6 @@ void dumpRangeOfSRAM(uint32_t base_address, uint32_t count, unsigned int step) {
   Serial.println();
   Serial.flush();
 }
-
-
-// Run a remanence experiment, lots of trials with differing SRAM power cycle time delays.
-// Arguments are the loop's (start, stop, and step) delay values (in milliseconds)
-void runRemanenceExperiment(double start, double stop, double step) {
-  if (wordStorageCount <= 0) {
-    Serial.println("error: no image available in cache");
-    return;
-  }
-  long theWordCount = wordStorageCount;
-
-  Serial.print("Size of memory section to use (words): ");
-  Serial.println(theWordCount);
-  Serial.print("Delay start (ms): ");
-  Serial.println(start, 3);
-  Serial.print("Delay stop (ms): ");
-  Serial.println(stop, 3);
-  Serial.print("Delay step (ms): ");
-  Serial.println(step, 3);
-
-  Serial.println("Press enter to continue...");
-  serialPromptLine(nullptr, 0);
-
-  for (double t_d = start; t_d <= stop; t_d += step) {
-    // These lines are essential for my Python data parsing program to find the delay time for each trial.
-    Serial.print("Beginning next trial with delay of ");
-    Serial.print(t_d, 3);
-    Serial.println("ms");
-
-    // Write the stored/cached remanence-test image to the SRAM
-    writeReceivedImageBasic();
-
-    // Extra delay, just in case
-    delay(11);
-
-    // Restart SRAM and dump the power-up memory state
-    powerCycleSRAM1(t_d);
-    printSectionMemoryDump(0, theWordCount, 1);
-
-    // Extra delay, just in case
-    delay(11);
-  }
-
-  Serial.println("\n\n\nDone with remanence experiment\n\n\n");
-}
-
-
-
-// Run a remanence experiment, lots of trials with differing SRAM power cycle time delays.
-// Arguments are the loop's (start, stop, and step) delay values (in milliseconds)
-void runRemanenceExperimentInternal(double start, double stop, double step) {
-  if (wordStorageCount <= 0) {
-    return;
-  }
-  long theWordCount = wordStorageCount;
-
-  for (double t_d = start; t_d <= stop; t_d += step) {
-    // These lines are essential for my Python data parsing program to find the delay time for each trial.
-    Serial.print("Beginning next trial with delay of ");
-    Serial.print(t_d, 3);
-    Serial.println("ms");
-
-    // Write the stored/cached remanence-test image to the SRAM
-    writeReceivedImageBasic();
-
-    // Extra delay, just in case
-    delay(11);
-
-    // Restart SRAM and dump the power-up memory state
-    powerCycleSRAM1(t_d);
-    printSectionMemoryDump(0, theWordCount, 1);
-
-    // Extra delay, just in case
-    delay(11);
-  }
-
-  Serial.println("\n\n(done with 1 remanence experiment)\n\n");
-}
-
-
-// Run a remanence experiment, lots of trials with differing SRAM power cycle time delays.
-// Arguments are the loop's (start, stop, and step) delay values (in milliseconds)
-void runCustomRemanenceExperiment(void) {
-  if (wordStorageCount == 0) {
-    Serial.println("error: no image available in cache");
-    return;
-  }
-  long theWordCount = wordStorageCount;
-
-  int choice = promptForDecimalNumber("Add checks for 90, 150, or 250 (0 for none)?");
-  if (choice != 0 && choice != 90 && choice != 150 && choice != 250) {
-    Serial.println("error: say 90, 150, or 250");
-    return;
-  }
-
-  Serial.print("Size of memory section to use (words): ");
-  Serial.println(theWordCount);
-
-  Serial.println("Press enter to continue...");
-  serialPromptLine(nullptr, 0);
-
-  // double delays[] = {
-  //   1.050, 1.010, 0.890, 1.100, 0.020, 1.010,
-  //   0.470, 0.910, 0.220,
-  //   1, 2, 3, 4, 5, 6, 7, 8, 9,
-  //   1.950, 0.510, 0.900, 0.010, 0.990, 1.500,
-  //   10, 20, 30, 40, 50, 60, 70, 80, 90,
-  //   1.900,  0.300, 0.410, 0.250, 0.200, 0.100,
-  //   100, 200, 300, 400, 500, 600, 700, 800,
-  //   0.390, 0.030, 0.600, 0.350, 0.500, 0.120, 0.090,
-  //   0.100, 0.900,
-  // };
-  double generalDelaysRange[] = {
-    // log scale
-    0.010, 0.020, 0.030, 0.040, 0.050, 0.060, 0.070, 0.080, 0.090,
-    0.100, 0.200, 0.300, 0.400, 0.500, 0.600, 0.700, 0.800, 0.900,
-    1, 2, 3, 4, 5, 6, 7, 8, 9,
-    10, 20, 30, 40, 50, 60, 70, 80, 90,
-    100, 200, 300, 400, 500, 600, 700, 800, 900,
-    1000, 2000, 3000,
-  };
-  constexpr int count = (sizeof(generalDelaysRange)/sizeof(generalDelaysRange[0]));
-
-  // Iterate the delays[] in a random order
-  if (randomSequenceBegin(count)) {
-    int i;
-    while ((i = randomSequenceNext()) >= 0) {
-      double t_d = generalDelaysRange[i];
-
-      // These lines are essential for my Python data parsing program to find the delay time for each trial.
-      Serial.print("Beginning next trial with delay of ");
-      Serial.print(t_d, 3);
-      Serial.println("ms");
-
-      // Write the stored/cached remanence-test image to the SRAM
-      writeReceivedImageBasic();
-
-      // Extra delay, just in case
-      delay(1000);
-
-      // Restart SRAM and dump the power-up memory state
-      powerCycleSRAM1(t_d);
-      printSectionMemoryDump(0, theWordCount, 1);
-
-      // Extra delay, just in case
-      delay(1000);
-    }
-
-    randomSequenceEnd();
-  }
-
-  if (choice != 0) {
-    // areas of interest for 250nm
-    double delaysRange250[] = {
-      270, 280, 285, 286, 287, 288, 289, 290, 291, 295, 310, 320,
-      1100, 1200, 1300, 1400, 1500,
-      -1,//terminator
-    };
-
-    // areas of interest for 150nm
-    double delaysRange150[] = {
-      2.500, 3.500, 4.500, 5.500, 6.500, 7.500, 8.500, 9.500, 10.500,
-      -1,//terminator
-    };
-
-    // areas of interest for 90nm
-    double delaysRange90[] = {
-      0.110, 0.550,
-      0.150, 0.160, 0.170, 0.180, 0.190, 0.210, 0.250, 0.350, 0.380, 0.390, 0.410, 0.420, 0.450,
-      -1,//terminator
-    };
-
-    // Now, use one of the node-specific ranges of delays to try next
-
-    double *interestRange = nullptr;
-    switch (choice) {
-      case 90: interestRange = delaysRange90; break;
-      case 150: interestRange = delaysRange150; break;
-      case 250: interestRange = delaysRange250; break;
-      default: return;
-    }
-    // Get the chosen array length
-    int count2 = 0;
-    while (interestRange[count2] > 0) {
-      count2++;
-    }
-
-    if (randomSequenceBegin(count2)) {
-      int i;
-      while ((i = randomSequenceNext()) >= 0) {
-        double t_d = interestRange[i];
-
-        // These lines are essential for my Python data parsing program to find the delay time for each trial.
-        Serial.print("Beginning next trial with delay of ");
-        Serial.print(t_d, 3);
-        Serial.println("ms");
-
-        // Write the stored/cached remanence-test image to the SRAM
-        writeReceivedImageBasic();
-
-        // Extra delay, just in case
-        delay(1000);
-
-        // Restart SRAM and dump the power-up memory state
-        powerCycleSRAM1(t_d);
-        printSectionMemoryDump(0, theWordCount, 1);
-
-        // Extra delay, just in case
-        delay(1000);
-      }
-
-      randomSequenceEnd();
-    }
-  }
-
-  Serial.println("\n\n\nDone with remanence experiment\n\n\n");
-}
-
-
-
-// Run a CUMULATIVE remanence experiment, lots of trials with differing SRAM power cycle time delays.
-// Arguments are the loop's (start, stop, and step) delay values (in milliseconds)
-void runCumulativeRemanenceExperiment(double start, double stop, double step) {
-  if (wordStorageCount <= 0) {
-    Serial.println("error: no image available in cache");
-    return;
-  }
-  long theWordCount = wordStorageCount;
-
-  Serial.print("Size of memory section to use (words): ");
-  Serial.println(theWordCount);
-  Serial.print("Delay start (ms): ");
-  Serial.println(start, 3);
-  Serial.print("Delay stop (ms): ");
-  Serial.println(stop, 3);
-  Serial.print("Delay step (ms): ");
-  Serial.println(step, 3);
-
-  Serial.println("Press enter to continue...");
-  serialPromptLine(nullptr, 0);
-
-  // Write the stored/cached remanence-test image to the SRAM
-  // ONCE only.
-  writeReceivedImageBasic();
-
-  for (double t_d = start; t_d <= stop; t_d += step) {
-    // These lines are essential for my Python data parsing program to find the delay time for each trial.
-    Serial.print("Beginning next trial with delay of ");
-    Serial.print(t_d, 3);
-    Serial.println("ms (cumulative)");
-
-    // Extra delay, just in case
-    delay(11);
-
-    // Restart SRAM and dump the power-up memory state.
-    // Do not re-write the image, and
-    // only power-off for the 'step' duration (this is why it is cumulative)
-    powerCycleSRAM1(step);
-    printSectionMemoryDump(0, theWordCount, 1);
-
-    // Extra delay, just in case
-    delay(11);
-  }
-
-  Serial.println("\n\n\nDone with CUMULATIVE remanence experiment\n\n\n");
-}
-
 
 
 //--------------------------------------------------
@@ -858,103 +538,6 @@ long serialAwaitWord(void) {
 }
 
 
-// Get hex image data from over the Serial monitor, and save it to wordStorage, an image buffer on the Arduino.
-void receiveBinaryImage(void) {
-  Serial.println("Prepare to send over data for a binary image (1 bit per pixel)");
-
-  Serial.println("Enter number of columns = image width:");
-  const int numColumns = promptForDecimalNumber();
-
-  Serial.println("Enter number of rows = image height:");
-  const int numRows = promptForDecimalNumber();
-
-  const long numPixels = numRows * numColumns;
-  long numHexWords = ceil((double) numPixels / 16.0);
-
-  if (numPixels == 0) {
-    Serial.println("No data");
-    return;
-  }
-
-  Serial.print("Number of bit pixels: ");
-  Serial.println(numPixels);
-  if (numPixels % 16 != 0) {
-    Serial.println("NOTE: not a multiple of 16");
-    numHexWords++;
-    // return;
-  }
-
-  if (numHexWords > sizeof(wordStorage)/sizeof(wordStorage[0])) {
-    Serial.println("Arduino does not have enough memory for an image of that size!");
-    return;
-  }
-
-  Serial.print("Enter a total of ");
-  Serial.print(numHexWords);
-  Serial.println(" hex words (4 hex characters each)");
-  
-  // empty-out the input
-  while (Serial.available()) {
-    Serial.read();
-  }
-
-  wordStorageCount = 0;
-  for (int i = 0; i < numHexWords; i++) {
-    long long w = serialAwaitWord();
-    if (w < 0) {
-      // invalid hex word
-      Serial.println("error: invalid hex word in image data!");
-      Serial.print("(at index ");
-      Serial.print(i);
-      Serial.println(")");
-      return;
-    }
-    // printWordHex4(w);
-    // writeWord(i, w);
-    wordStorage[i] = w;
-  }
-  wordStorageCount = numHexWords;
-
-  Serial.println("\nDone receiving image data");
-}
-
-
-// Write the image data from this Arduino's wordStorage image buffer to the SRAM memory.
-void writeReceivedImage(bool showProgress) {
-  if (wordStorageCount <= 0) {
-    Serial.println("error: do not have received image to save");
-    return;
-  }
-  Serial.print("Saving a ");
-  Serial.print(wordStorageCount);
-  Serial.print("-word image to SRAM");
-  long lastUpdate = millis(); // keep track of the last time we sent a progress update
-  for (int i = 0; i < wordStorageCount; i++) {
-    writeWord(i, wordStorage[i]);
-
-    // Display progress updates over the Serial by sending dots
-    if (showProgress && (millis() - lastUpdate > 500)) {
-      Serial.print('.');
-      lastUpdate = millis();
-    }
-  }
-
-  Serial.println("\nDone saving image to SRAM");
-}
-
-
-// Write the image data from this Arduino's wordStorage image buffer to the SRAM memory.
-void writeReceivedImageBasic(void) {
-  if (wordStorageCount < 1) {
-    Serial.println("error: do not have received image to save");
-    return;
-  }
-  for (int i = 0; i < wordStorageCount; i++) {
-    writeWord(i, wordStorage[i]);
-  }
-}
-
-
 // Write a set value to some memory and check that the same value reads back.
 // (A memory range starts at base, and goes up to base+count, by a step of step).
 bool checkWriteAndReadBackValue(uint32_t value, uint16_t base_address, uint16_t count) {
@@ -964,14 +547,14 @@ bool checkWriteAndReadBackValue(uint32_t value, uint16_t base_address, uint16_t 
 
   for (auto i = 0; i < count; ++i) {
     if (readWord(base_address + i) != value) {
-      Serial.print("checkWriteAndReadBackValue(0x");
-      Serial.print(value, 16);
-      Serial.print(", 0x");
-      Serial.print(base_address, 16);
-      Serial.print(", 0x");
-      Serial.print(count, 16);
-      Serial.print(") failed at address 0x");
-      Serial.println(i, 16);
+      // Serial.print("checkWriteAndReadBackValue(0x");
+      // Serial.print(value, 16);
+      // Serial.print(", 0x");
+      // Serial.print(base_address, 16);
+      // Serial.print(", 0x");
+      // Serial.print(count, 16);
+      // Serial.print(") failed at address 0x");
+      // Serial.println(i, 16);
       return false;
     }
   }
@@ -989,8 +572,8 @@ bool runAddressBitTest(void) {
   }
   for (int i = 0; i < AddressPinCount; i++) {
     if (readWord(1 << i) != 0) {
-      Serial.print("Address pin #");
-      Serial.println(i);
+      // Serial.print("Address pin #");
+      // Serial.println(i);
       return false;
     }
   }
@@ -1001,8 +584,8 @@ bool runAddressBitTest(void) {
   }
   for (int i = 0; i < AddressPinCount; i++) {
     if (readWord(1 << i) != 0xFFFF) {
-      Serial.print("Address pin #");
-      Serial.println(i);
+      // Serial.print("Address pin #");
+      // Serial.println(i);
       return false;
     }
   }
@@ -1013,8 +596,8 @@ bool runAddressBitTest(void) {
   }
   for (int i = 0; i < AddressPinCount; i++) {
     if (readWord(1 << i) != i) {
-      Serial.print("Address pin #");
-      Serial.println(i);
+      // Serial.print("Address pin #");
+      // Serial.println(i);
       return false;
     }
   }
@@ -1028,12 +611,12 @@ bool checkConnectedChip(void) {
   constexpr int kb = 1024;
 
   if (!runAddressBitTest()) {
-    Serial.println("runAddressBitTest() failed");
+    // Serial.println("runAddressBitTest() failed");
     return false;
   }
 
   // Check some overlapping regions with different values
-  constexpr int count1 = 5; // the first few kb
+  constexpr int count1 = 3; // the first few kb
   constexpr int extent1 = 2; // overlap (in kb)
   for (int i = 0; i < count1; ++i) {
     if (!checkWriteAndReadBackValue(0x0000, i * kb, extent1 * kb)) { // check an all-0s word
@@ -1058,519 +641,30 @@ bool checkConnectedChip(void) {
   }
 
   if (!runAddressBitTest()) {
-    Serial.println("runAddressBitTest() failed");
+    // Serial.println("runAddressBitTest() failed");
     return false;
   }
 
   // Write an increasing sequence and check that it reads back.
-  constexpr int count2 = 2;
+  constexpr int count2 = 1;
   for (int i = 0; i < count2 * kb; ++i) {
     writeWord(i, i);
   }
   Serial.print('.');
   for (int i = 0; i < count2 * kb; ++i) {
     if (readWord(i) != i) {
-      Serial.println("Increasing sequence failed");
+      // Serial.println("Increasing sequence failed");
       return false;
     }
   }
   Serial.print('.');
 
   if (!runAddressBitTest()) {
-    Serial.println("runAddressBitTest() failed");
+    // Serial.println("runAddressBitTest() failed");
     return false;
   }
 
   return true;
-}
-
-
-// Do a memory dump with the required surrounding text that my Python code will look for.
-// (A memory range starts at base, and goes up to base+count, by a step of step).
-// (New version 2, which logs the parameters)
-void printSectionMemoryDump(uint32_t baseAddress, uint32_t count, unsigned int step) {
-  Serial.println("Starting memory dump...");
-  Serial.print("* base address = "); Serial.println(baseAddress, 16);
-  Serial.print("* length = "); Serial.println(count);
-  Serial.print("* step = "); Serial.println(step);
-
-  if (count == 0) {
-    Serial.println("printSectionMemoryDump: step = 0 not allowed");
-    return;
-  }
-
-  Serial.println("[begin memory dump]");
-
-  dumpRangeOfSRAM(baseAddress, count, step);
-
-  Serial.println("[end memory dump]");
-}
-
-
-// Do multiple dumps of the SRAM memory's startup/power-up values.
-void doMultipleDumps(void) {
-  int cycles = promptForDecimalNumber("Number of times to power cycle and dump start-up SRAM values: ");
-  if (cycles <= 0) {
-    Serial.println("Invalid cycles value");
-    return;
-  }
-
-  // Delay
-  int ms_delay = promptForDecimalNumber("Enter the power-off delay (in ms) (which should be > max remanence time for the SRAM chip: ");
-  if (ms_delay <= 0) {
-    Serial.println("Invalid delay value");
-    return;
-  }
-
-  // Address length/count
-  int count = promptForDecimalNumber("Enter the number of addresses/size/count (starting from base address 0x0) to collect (enter 0 for entire SRAM): ");
-  if (count < 0) {
-    Serial.println("Invalid address count value");
-    return;
-  }
-  if (count == 0) {
-    count = NUM_WORDS;
-  }
-
-  for (int i = 0; i < cycles; i++) {
-    // Extra delay
-    delay(10);
-
-    // Info
-    Serial.print("Starting repetition #");
-    Serial.print(i + 1);
-    Serial.print(" of ");
-    Serial.println(cycles);
-
-    powerCycleSRAM2(ms_delay, 0);
-    printSectionMemoryDump(0, count, 1);
-  }
-
-  Serial.println("\nDone with dumping multiple SRAM startup values ");
-}
-
-
-// Get the Hamming Weight for an integer (the number of bits set to 1 in the unsigned binary representation)
-short int intHammingWeight(unsigned long x) {
-    short int hWeight = 0;
-    while (x) {
-      hWeight++;
-      x &= x - 1;
-    }
-    return hWeight;
-}
-
-
-// Find the Hamming distance between two ints
-short int intHammingDistance(unsigned long x, unsigned long y) {
-  return intHammingWeight(x ^ y);
-}
-
-
-// Sum up the Hamming weight of a range of SRAM memory.
-// (A memory range starts at base, and goes up to base+count, by a step of step).
-uint32_t rangeHammingWeight(uint32_t baseAddress, uint32_t count, uint32_t step) {
-  if (step == 0) {
-    // Prevent entering an infinite loop
-    return 0;
-  }
-  uint32_t hWeight = 0;
-  for (uint32_t i = 0; i < count; i += step) {
-    hWeight += intHammingWeight(readWord(baseAddress + i));
-  }
-  return hWeight;
-}
-
-
-// Sum up the Hamming weight of a range of SRAM memory, with progress output.
-// (A memory range starts at base, and goes up to base+count, by a step of step).
-uint32_t rangeHammingWeightProgress(uint32_t baseAddress, uint32_t count, uint32_t step) {
-  if (step == 0) {
-    // Prevent entering an infinite loop
-    return 0;
-  }
-  long lastUpdate = millis();
-  uint32_t hWeight = 0;
-  for (uint32_t i = 0; i < count; i += step) {
-    hWeight += intHammingWeight(readWord(baseAddress + i));
-
-    // Print out progress updates
-    if (millis() - lastUpdate > 500) {
-      Serial.print('.');
-      lastUpdate = millis();
-    }
-  }
-
-  // End the line of progress dots
-  Serial.println();
-
-  return hWeight;
-}
-
-
-void beep(void) {
-  Serial.print('\a');
-}
-
-
-void printChoices(void) {
-  Serial.println("===== Available command choices =====");
-  Serial.println("  0) test SRAM memory and the power switch pMOS");
-  Serial.println("  1) dump memory range");
-  Serial.println("  2) fill memory range a given value");
-  Serial.println("  3) power cycle SRAM");
-  Serial.println("  4) upload data to Arduino image cache");
-  Serial.println("  5) write Arduino image cache to SRAM");
-  Serial.println("  6) run remanence experiment 'increasing steps'");
-  Serial.println("  7) do multiple power-up memory dumps");
-  Serial.println("  8) sum up the Hamming weight on a memory range");
-  Serial.println("  9) run remanence experiment 'custom'");
-  Serial.println(" 10) run remanence experiment 'cumulative'");
-  Serial.println(" 11) invert memory contents");
-  Serial.println(" 12) set control and address pins to INPUT state");
-  Serial.println(" 13) manual power cycle SRAM");
-  Serial.println(" 14) do multiple sums of Hamming Weight");
-  Serial.println(" 15) do experiment from command #6 multiple times");
-  Serial.println(" 16) calculate Hamming distance between two SRAM chips");
-  Serial.println(" 17) do a write/power-off/read cycle multiple times");
-  Serial.println(" 18) set control and address pins to INPUT state, except for the ChipEnable pin");
-  Serial.println(" 19) set control and address pins to INPUT_PULLUP state, except for the ChipEnable pin");
-  Serial.println(" 20) disable chip");
-}
-
-
-void handleCommandNumber(int choice) {
-  switch (choice) {
-  case 0:
-    {
-      // Check SRAM chip socket connection
-      Serial.print("Now running a test to check if the SRAM chip is working...");
-      if (!checkConnectedChip()) {
-        Serial.println("\n\n>>>> NOT ok\n");
-        return;
-      }
-      Serial.println("\n\n>>>> OK\n");
-
-      // Check that the pMOS can turn chip on and off
-      Serial.println("Now running a test to check if the pMOS can power on/off the SRAM chip...");
-      if (checkPowerControl()) {
-        Serial.println("\n\n>>>> OK\n");
-      }
-      else {
-        Serial.println("\n\n>>>> NOT ok\n");
-      }
-    } break;
-  case 1:
-    {
-      // dump memory
-      auto base = promptForHexNumber("Base address = 0x");
-      auto count = promptForDecimalNumber("Count/length = ");
-      auto step = 1; //promptForDecimalNumber("Step/stride = ");
-      if (base >= NUM_WORDS || count > NUM_WORDS || step < 1 || step > NUM_WORDS) {
-        Serial.println("Invalid base, count, or step");
-        return;
-      }
-      printSectionMemoryDump(base, count, step);
-    }  break;
-  case 2:
-    {
-      // fill memory
-      uint32_t val = promptForHexNumber("Value to fill SRAM with = 0x");
-      auto base = promptForHexNumber("Base/start address = 0x");
-      auto count = promptForDecimalNumber("Count/length (0 for full SRAM size) = ");
-      auto step = 1; //promptForDecimalNumber("Step/stride = ");
-      if (base >= NUM_WORDS || count > NUM_WORDS || step < 1 || step > NUM_WORDS) {
-        Serial.println("Invalid base, count, or step");
-        return;
-      }
-      if (count == 0) {
-        count = NUM_WORDS;
-      }
-      fillRangeOfSRAM(val, base, count, step, true);
-    } break;
-  case 3:
-    {
-      auto off_ms = promptForDecimalNumber("Enter time to power off the SRAM for (milliseconds):");
-      auto off_us = promptForDecimalNumber("Enter time to power off the SRAM for (additional microseconds):");
-      powerCycleSRAM2(off_ms, off_us);
-    } break;
-  case 4:
-    {
-      receiveBinaryImage();
-    } break;
-  case 5:
-    {
-      writeReceivedImage(true);
-    } break;
-  case 6:
-    {
-      // Remanence experiment = multiple trials of write-powerCycle-read with different powerCycle delays
-      auto start_ms = promptForDecimalNumber("Starting power-off value (ms) ");
-      auto stop_ms = promptForDecimalNumber("Stopping power-off value (ms) ");
-      auto step_us = promptForDecimalNumber("Time step (us) ");
-      if (start_ms > stop_ms || step_us == 0 || stop_ms == 0) {
-        Serial.println("Invalid start, stop, or step value");
-        break;
-      }
-      auto step_ms = (double) step_us / 1000.0;
-      runRemanenceExperiment(start_ms, stop_ms, step_ms);
-      beep();
-    } break;
-  case 7:
-    {
-      doMultipleDumps();
-      beep();
-    } break;
-  case 8:
-    {
-      // Hamming weight for memory range
-      auto base = promptForHexNumber("Base/start address = 0x");
-      auto count = promptForDecimalNumber("Count/length = ");
-      auto step = 1; //promptForDecimalNumber("Step/stride = ");
-      
-      if (count == 0) {
-        count = NUM_WORDS;
-      }
-
-      auto result = rangeHammingWeightProgress(base, count, step);
-
-      Serial.print("Hamming weight = ");
-      Serial.println(result);
-    } break;
-  case 9:
-    {
-      runCustomRemanenceExperiment();
-      beep();
-    } break;
-  case 10:
-    {
-      auto start_ms = promptForDecimalNumber("Starting power-off value (ms) = ");
-      auto stop_ms = promptForDecimalNumber("Stopping power-off value (ms) = ");
-      auto step_us = promptForDecimalNumber("Time step (us) = ");
-      if (start_ms > stop_ms || step_us == 0 || stop_ms == 0) {
-        Serial.println("Invalid start, stop, or step value");
-        break;
-      }
-      auto step_ms = (double) step_us / 1000.0;
-      runCumulativeRemanenceExperiment(start_ms, stop_ms, step_ms);
-      beep();
-    } break;
-  case 11:
-    {
-      // Invert memory contents
-      Serial.println("Inverting memory contents...");
-      for (int i = 0; i < NUM_WORDS; i++) {
-        writeWord(i, ~readWord(i));
-      }
-      Serial.println("Done.");
-    } break;
-  case 12:
-    {
-      // Set all pins to be INPUT
-      setAllPinsMode(INPUT);
-
-      Serial.println("Pins set to INPUT. Press enter to stop.");
-      serialPromptLine(nullptr, 0);
-
-      Serial.println("Setting pins back to normal states.");
-      setupControlPins();
-    } break;
-  case 13:
-    {
-      // Power-off SRAM manually for however long
-      turnOffSRAM();
-      auto startTime = micros();
-      Serial.println("SRAM is now off, enter anything to turn it back on and continue...");
-      
-      serialPromptLine(nullptr, 0);
-
-      turnOnSRAM();
-
-      auto duration = micros() - startTime;
-      Serial.print("Off time = ");
-      Serial.print(duration);
-      Serial.println(" microseconds");
-    } break;
-  case 14:
-    {
-      // Collect power-up Hamming weight multiple times
-      auto off_us = promptForDecimalNumber("power-off time (us) = ");
-      auto cycles = promptForDecimalNumber("number of cycles = ");
-      auto base = promptForHexNumber("base address (hex) = 0x");
-      auto length = promptForDecimalNumber("address count (0 for the full memory size) = ");
-      if (length == 0) {
-        length = NUM_WORDS;
-      }
-      // Repeat the cycles for Hamming Weight
-      for (int i = 0; i < cycles; i++) {
-        Serial.println("Filling the SRAM...");
-        fillRangeOfSRAM(0xffff, base, NUM_WORDS, 1, true);
-
-        powerCycleSRAM1((double) off_us / 1000.0); // convert [us] to [ms]
-        Serial.print(i + 1);
-        Serial.println(") measuring...");
-        auto result = rangeHammingWeight(base, length, 1);
-        auto result2 = rangeHammingWeight(base, length, 1);
-        Serial.print("Hamming weight: ");
-        Serial.println(result);
-        if (result2 != result) {
-          Serial.println("Hamming weight #2: ");
-          Serial.println(result2);
-        }
-        // Extra delay
-        delay(100);
-      }
-      beep();
-    } break;
-  case 15:
-    {
-      // Run multiple runs of the remenance experiment
-      if (wordStorageCount == 0) {
-        Serial.println("error: no image available in cache");
-        break;
-      }
-      // Repeat option #6 a few times
-      auto start_ms = promptForDecimalNumber("Starting power-off value (ms) ");
-      auto stop_ms = promptForDecimalNumber("Stopping power-off value (ms) ");
-      auto step_us = promptForDecimalNumber("Time step (us) ");
-      auto step_ms = (double) step_us / 1000.0;
-      if (start_ms > stop_ms || step_us == 0 || stop_ms == 0) {
-        Serial.println("Invalid start, stop, or step value");
-        break;
-      }
-      auto repeatTimes = promptForDecimalNumber("Number of times to repeat this whole process: ");
-      for (int i = 0; i < repeatTimes; i++) {
-        Serial.print(i + 1);
-        Serial.println(")");
-        runRemanenceExperimentInternal(start_ms, stop_ms, step_ms);
-      }
-      beep();
-    } break;
-  case 16:
-    {
-      // Read some chip A data, then read another (B) one and calculate the Hamming distance between A and B.
-      constexpr int numCompareWords  = 10000; // words
-      double maxPercentSimilar = 0.05;
-
-      Serial.println("Reading data from current chip...");
-      uint16_t wordsA[numCompareWords];
-      for (int i = 0; i < numCompareWords; i++) {
-        wordsA[i] = readWord(i);
-      }
-
-      Serial.println("Put in another chip to read...");
-      promptForDecimalNumber("(enter to continue) > ");
-
-      int hammingDistanceSum = 0;
-      for (int i = 0; i < numCompareWords; i++) {
-        uint16_t wordB = readWord(i);
-        intHammingDistance(wordsA[i], wordB);
-      }
-      double percentDifference = (double) hammingDistanceSum / numCompareWords;
-
-      Serial.print("Hamming distance = ");
-      Serial.print(percentDifference);
-      Serial.println("%");
-
-      if (percentDifference > maxPercentSimilar) {
-        Serial.println("Are they the same chip? NO");
-      }
-      else {
-        Serial.println("Are they the same chip? YES");
-      }
-    } break;
-  case 17:
-    {
-      // Repeat a write/power-off/read cycle multiple times.
-      // Like a remanence experiment, but with constant power-off time.
-      int repeats = promptForDecimalNumber("Set the number of repeats: ");
-      if (repeats == 0 || repeats > 999) {
-        // Probably not right
-        Serial.print("Not accepting repeats = ");
-        Serial.println(repeats);
-        break;
-      }
-      int delay = promptForDecimalNumber("Set a power-off time between cycles (ms): ");
-      int count = promptForDecimalNumber("Use address range 0 up to: ");
-      if (count == 0) {
-        Serial.println("(Got 0, replacing with NUM_WORDS)");
-        count = NUM_WORDS;
-      }
-      uint16_t value = promptForHexNumber("Set a 16-bit hex value to fill SRAM with: 0x");
-      for (int i = 0; i < repeats; i++) {
-        // Log trial/repeat sequence number for easier human-readability of a dump file
-        Serial.println();
-        Serial.print("=== Repeat ");
-        Serial.print(i + 1);
-        Serial.print(" of ");
-        Serial.print(repeats);
-        Serial.println(" ===");
-
-        // Print my "standard" trial marker line (but the delay is always the same)
-        Serial.print("Beginning next trial with delay of ");
-        Serial.print(delay);
-        Serial.println("ms");
-
-        // Write the value to all SRAM addresses
-        Serial.print("Filling SRAM with 0x");
-        printWordHex4(value);
-        fillRangeOfSRAM(value, 0, count, 1, true);
-
-        // Power off and on again
-        powerCycleSRAM1(delay);
-
-        // Dump SRAM values
-        printSectionMemoryDump(0, count, 1);
-      }
-
-      // Done
-      Serial.println();
-      Serial.println("Done with command #17");
-      beep();
-    } break;
-  case 18:
-    {
-      // Set all pins except chip enable to high-impedance
-      setAllPinsMode(INPUT);
-      pinMode(pin_nCE, OUTPUT);
-      digitalWrite(pin_nCE, 0);
-
-      Serial.println("Pins set to INPUT, except ~CE = 0. Press enter to stop.");
-      serialPromptLine(nullptr, 0);
-
-      Serial.println("Setting pins back to normal states.");
-      setupControlPins();
-    } break;
-  case 19:
-    {
-      // Set all pins to be INPUT_PULLUP
-      setAllPinsMode(INPUT_PULLUP);
-
-      Serial.println("Pins set to INPUT_PULLUP. Press enter to stop.");
-      serialPromptLine(nullptr, 0);
-
-      Serial.println("Setting pins back to normal states.");
-      setupControlPins();
-    } break;
-  case 20:
-    {
-      // Set all pins to be INPUT_PULLUP
-      disableChip();
-
-      Serial.println("Chip disabled. Press enter to enable and continue.");
-      serialPromptLine(nullptr, 0);
-
-      Serial.println("Chip enabled.");
-      enableChip();
-    } break;
-  default:
-    {
-      // Received an unhandled choice number
-      Serial.print("Invalid command choice '");
-      Serial.print(choice);
-      Serial.println("'");
-    } break;
-  }
 }
 
 
@@ -1594,11 +688,20 @@ void setup() {
 
 
 void loop() {
-  printChoices();
+  auto offTimeSeconds = promptForDecimalNumber();
 
-  auto choice = promptForDecimalNumber("Enter choice number: ");
+  turnOnSRAM();
+  
+  if (checkConnectedChip()) {
+    // If chip is connected: print "t" for True, power down for offTime, and then do data dump.
+    Serial.println("t");
+    powerCycleSRAM1(offTimeSeconds * 1000);
+    dumpRangeOfSRAM(0, NUM_WORDS, 1);
+  }
+  else {
+    // Chip not connected: print "f" for False
+    Serial.println("f");
+  }
 
-  Serial.println("---");
-
-  handleCommandNumber(choice);
+  turnOffSRAM();
 }

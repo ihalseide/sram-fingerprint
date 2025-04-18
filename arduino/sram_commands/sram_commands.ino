@@ -354,16 +354,16 @@ void turnOnSRAM() {
 // This version is when the delay is given as two integers: delay in milliseconds (ms) and additional delay in microseconds (us).
 void powerCycleSRAM2(uint32_t delay_ms, uint32_t delay_us) {
   // Logging, so that my Python data parsing scipt knows about all power-off events
-  Serial.print("Turning off the SRAM power for "); // "Powering" is a typo, but keep it for backwards-compatibility
-  Serial.print(delay_ms);
-  Serial.print("ms + ");
-  Serial.print(delay_us);
-  Serial.println("us");
+  // Serial.print("Turning off the SRAM power for "); // "Powering" is a typo, but keep it for backwards-compatibility
+  // Serial.print(delay_ms);
+  // Serial.print("ms + ");
+  // Serial.print(delay_us);
+  // Serial.println("us");
 
-  if (delay_ms == 0 && delay_us == 0) {
-    Serial.println("note: useless 0ms delay!!!");
-    return;
-  }
+  // if (delay_ms == 0 && delay_us == 0) {
+  //   Serial.println("note: useless 0ms delay!!!");
+  //   return;
+  // }
 
   turnOffSRAM();
   delay(delay_ms);
@@ -429,6 +429,9 @@ void dumpRangeOfSRAM(uint32_t base_address, uint32_t count, unsigned int step) {
     return;
   }
 
+  // const int limit = 64;
+  // int check_count = limit;
+
   for (uint32_t i = 0; i < count; i += step) {
     if (i > 0) {
       // In ASCII hex dump, add spaces between words and add newlines after every 16 words
@@ -443,6 +446,16 @@ void dumpRangeOfSRAM(uint32_t base_address, uint32_t count, unsigned int step) {
     }
 
     printWordHex4(readWord(base_address + i));    
+
+    // check_count--;
+    // if (check_count == 0) {
+    //   check_count = limit;
+    //   Serial.flush();
+    //   char x = Serial.read();
+    //   if (x != 't') {
+    //     return;
+    //   }
+    // }
   }
   
   Serial.println();
@@ -608,6 +621,9 @@ bool runAddressBitTest(void) {
 // Returns false if the chip is definitely not connected or not working right.
 // NOTE: this overwrites data in the SRAM, so don't run this as a casual check expecting to preserve the SRAM state!
 bool checkConnectedChip(void) {
+
+  //Serial.println("Checking...");
+
   constexpr int kb = 1024;
 
   if (!runAddressBitTest()) {
@@ -616,7 +632,7 @@ bool checkConnectedChip(void) {
   }
 
   // Check some overlapping regions with different values
-  constexpr int count1 = 3; // the first few kb
+  constexpr int count1 = 2; // the first few kb
   constexpr int extent1 = 2; // overlap (in kb)
   for (int i = 0; i < count1; ++i) {
     if (!checkWriteAndReadBackValue(0x0000, i * kb, extent1 * kb)) { // check an all-0s word
@@ -627,7 +643,7 @@ bool checkConnectedChip(void) {
       return false;
     }
 
-    Serial.print('.');
+    //Serial.print('.');
 
     if (!checkWriteAndReadBackValue(0xAAAA, i * kb, extent1 * kb)) { // check an all-0s word
       return false;
@@ -637,7 +653,7 @@ bool checkConnectedChip(void) {
       return false;
     }
 
-    Serial.print('.');
+    //Serial.print('.');
   }
 
   if (!runAddressBitTest()) {
@@ -650,14 +666,14 @@ bool checkConnectedChip(void) {
   for (int i = 0; i < count2 * kb; ++i) {
     writeWord(i, i);
   }
-  Serial.print('.');
+  //Serial.print('.');
   for (int i = 0; i < count2 * kb; ++i) {
     if (readWord(i) != i) {
       // Serial.println("Increasing sequence failed");
       return false;
     }
   }
-  Serial.print('.');
+  //Serial.print('.');
 
   if (!runAddressBitTest()) {
     // Serial.println("runAddressBitTest() failed");
@@ -688,6 +704,8 @@ void setup() {
 
 
 void loop() {
+  //Serial.println("loop()");
+
   auto offTimeSeconds = promptForDecimalNumber();
 
   turnOnSRAM();

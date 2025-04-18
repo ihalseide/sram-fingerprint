@@ -1,14 +1,20 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.stats import stats
-from matplotlib.colors import ListedColormap
+"""
+This is code for SRAM memory dump data analysis.
+There are multiple "main" functions which all have names that start with "main_"
+that are like scripts to create different plots and files from input data dump text files.
+"""
+
 
 import os, sys, re
 from typing import Any
 from timeit import default_timer as timer
 from operator import xor
 from typing import BinaryIO, Iterable, TextIO
-from collections import defaultdict, namedtuple
+from collections import namedtuple
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import pearsonr
+from matplotlib.colors import ListedColormap
 
 
 BITS_PER_WORD = 16 # SRAM bits per word
@@ -17,164 +23,12 @@ NUM_BITS = BITS_PER_WORD * NUM_WORDS
 HEX4_WORD_PATTERN = re.compile(r"[a-f0-9]{4}", re.IGNORECASE) # Hex dump pattern
 
 
-def combine_captures(capture_file_names: list[str], output_file):
-    # Allow 'output_file' to be a file or file path
-    if isinstance(output_file, str):
-        print(f"combining memory dumps to file '{output_file}'...")
-        with open(output_file, 'w') as output_file2:
-            return combine_captures(capture_file_names, output_file2)
-        
-    for file_name in capture_file_names:
-        print(f"adding data from '{file_name}'...")
-        with open(file_name, 'rb') as file_in:
-            print("[begin memory dump]", file=output_file)
-
-            while (word := file_read_next_hex4_no_error(file_in)) is not None:
-                print(hex4(word), file=output_file)
-
-            print("[end memory dump]", file=output_file)
-
-
-def create_gold_puf_v2(num_captures: int, input_file_name: str, output_file_name: str, num_words: int = NUM_WORDS):
-    '''
-    Use majority voting to create a PUF file that represents the desired start up memory state, given multiple memory dumps.
-    The 'input_file_name' should have multiple memory dumps (at least 'num_captures' of them) inside.
-    '''
-    assert num_captures % 2 != 0, "num_captures must be odd so there can be no voting ties"
-
-    # print(f"input file name: \"{input_file_name}\"")
-    # print(f"output file name: \"{output_file_name}\"")
-
-    # Array to map the data's bit index to number of votes that it should be set to a '1'
-    bit_votes_for_one = [ 0 for _ in range(num_words * BITS_PER_WORD) ]
-
-    print(f"- loading file \"{input_file_name}\"")
-    with open(input_file_name, "r") as file_in:
-        for c in range(1, num_captures + 1):
-            print(f"Processing capture #{c} in the file")
-
-            if file_seek_next_data_dump(file_in) is None:
-                raise ValueError(f"not enough memory dumps in input file '{input_file_name}': expected {num_captures} but stopped at {c}")
-
-            # Read each data word from the data file
-            for word_i in range(num_words):
-                word = file_read_next_hex4(file_in)
-                # Log the "bit vote" for each bit of the word
-                for word_bit_i in range(BITS_PER_WORD):
-                    bit_i = (word_i * BITS_PER_WORD) + word_bit_i
-                    # Test bit number 'bit_i' and increment a vote if it is set
-                    if word & (1 << word_bit_i) != 0:
-                        bit_votes_for_one[bit_i] += 1
-
-    # Iterate bit votes and write out best-voted word values to the output file
-    print(f"saving result to output file...")
-    with open(output_file_name, "w") as file_out:
-        for word_i in range(num_words):
-            word_value = 0
-            for word_bit_i in range(BITS_PER_WORD):
-                bit_i = (word_i * BITS_PER_WORD) + word_bit_i
-                # Resolve the bit votes to see if '1' or '0' wins the majority
-                if bit_votes_for_one[bit_i] > (num_captures // 2):
-                    word_value |= (1 << word_bit_i)
-            # Save hex representation of the majority word to the output file
-            ending = '' if word_i == (num_words - 1) else ' ' # no newline for the last line
-            print(f"{word_value:04X}", file=file_out, end=ending)
-            if (word_i + 1) % 16 == 0:
-                print(file=file_out)
-
-    print("done")
-
-
-def create_gold_puf_classification(num_captures: int, input_file_name: str, output_file_name: str, mode: str):
-    '''
-    Use voting to create a PUF hex memory dump file where the only bits set to '1' are those bits that match the
-    criteria represented by the 'mode' parameter.
-    - NOTE: in this function, a "natural" 0 or 1 really means a STRONG 0 or 1
-    - NOTE: The 'input_file_name' should have multiple memory dumps (at least 'num_captures' of them) inside.
-    '''
-
-    assert num_captures % 2 != 0, "num_captures must be odd so there can be no voting ties"
-    allowed_modes = ('natural 0s', 'natural 1s', 'wavering')
-    if mode not in allowed_modes:
-        raise ValueError(f"'mode' must be one of {allowed_modes}")
-
-    print(f"input file name: \"{input_file_name}\"")
-    print(f"output file name: \"{output_file_name}\"")
-
-    # Array to map the data's bit index to number of votes that it should be set to a '1'
-    bit_votes_for_one = [ 0 for _ in range(NUM_BITS) ]
-
-    print(f"- loading file \"{input_file_name}\"")
-    with open(input_file_name, "r") as file_in:
-        for c in range(1, num_captures + 1):
-            print(f"Processing capture #{c} in the file")
-
-            if file_seek_next_data_dump(file_in) is None:
-                raise ValueError(f"not enough memory dumps in input file '{input_file_name}': expected {num_captures} but stopped at {c}")
-
-            # Read each data word from the data file
-            for word_i in range(NUM_WORDS):
-                word = file_read_next_hex4(file_in)
-                # Log the "bit vote" for each bit of the word
-                for word_bit_i in range(BITS_PER_WORD):
-                    bit_i = (word_i * BITS_PER_WORD) + word_bit_i
-                    # Test bit number 'bit_i' and increment a vote if it is set
-                    if word & (1 << word_bit_i) != 0:
-                        bit_votes_for_one[bit_i] += 1
-
-    # Iterate bit votes and set the output bits to '1' that match the criteria for the given 'mode'
-    print(f"saving result to output file...")
-    with open(output_file_name, "w") as file_out:
-        for word_i in range(NUM_WORDS):
-            word_value = 0
-            for word_bit_i in range(BITS_PER_WORD):
-                bit_i = (word_i * BITS_PER_WORD) + word_bit_i
-                # Resolve the bit votes to see if '1' or '0' wins the majority
-                if mode == 'natural 0s':
-                    # A 'natural 0' is where a bit is always zero
-                    if bit_votes_for_one[bit_i] == 0:
-                        word_value |= (1 << word_bit_i)
-                elif mode == 'natural 1s':
-                    # A 'natural 1' is where a bit is always one
-                    if bit_votes_for_one[bit_i] == num_captures:
-                        word_value |= (1 << word_bit_i)
-                elif mode == 'wavering':
-                    # A 'wavering' is where a bit is not always one or always zero
-                    if bit_votes_for_one[bit_i] not in (0, num_captures):
-                        word_value |= (1 << word_bit_i)
-                else:
-                    assert False, 'unreachable'
-            # Save hex representation of the majority word to the output file
-            ending = '' if word_i == (NUM_WORDS - 1) else '\n' # no newline for the last line
-            print(f"{word_value:04X}", file=file_out, end=ending)
-
-    print("done")
-
-
 def file_read_hex4_dump_as_words(file_in: TextIO, num_words: int) -> np.ndarray:
     '''Load a hex4 memory dump file as a 1D array of 16-bit integer words.'''
     result = np.empty(num_words, dtype='uint16')
     for i in range(num_words):
         result[i] = file_read_next_hex4(file_in)
     return result
-
-
-def diff_puf_and_multi_capture(puf_file_name: str, trials_dump_file_name: str, num_words=NUM_WORDS):
-    with open(puf_file_name, "rb") as puf_file:
-        with open(trials_dump_file_name, "rb") as trials_file:
-            val_ms = 0.0
-            percent_diff = 0.0
-            while line := trials_file.readline().decode('ascii'):
-                line = line.strip()
-                if line == "[begin memory dump]":
-                    # get memory dump bits and diff it with the PUF file
-                    puf_file.seek(0) # go to beginning of PUF file
-                    a_weight, b_weight, diff = bit_diff_within_files(puf_file, trials_file, num_words, puf_file_name, trials_dump_file_name)
-                    #report_file_bit_diff(puf_file_name, trials_dump_file_name, a_weight, b_weight, diff)
-                    percent_diff = percent(diff, num_words * BITS_PER_WORD)
-                    print(f"Percent difference: {percent_diff:.3f}")  
-                else:
-                    print(line)
 
 
 def diff_puf_and_trials_dump(puf_file_name: str, trials_dump_file_name: str, num_words=NUM_WORDS) -> tuple[tuple[float, float], ...]:
@@ -580,19 +434,19 @@ def file_skip_space(file_in):
 
 def file_read_next_hex4(file_in: TextIO) -> int:
     '''
-    Within an already-open file for reading, skip whitespace and then read a 4-digit hex number.
+    Within an already-open file for reading, skip whitespace and then read a 4-character hex number.
     Raises a 'ValueError' if it cannot read that from the file.
     '''
-    word = ""
     while True:
         c = file_in.read(1)
         if not c:
-            raise ValueError(f"unexpected end of file at position #{file_in.tell()}")
-        if c.isspace():
-            continue
-        word += c
-        if len(word) == 4:
+            break
+        if not c.isspace():
+            word = c + file_in.read(3)
+            if len(word) != 4:
+                break
             return int(word, 16)
+    raise ValueError(f"unexpected end of file at position #{file_in.tell()}")
 
 
 def file_read_next_hex4_no_error(file_in) -> int | None:
@@ -733,58 +587,11 @@ def convert_words_to_image(words: np.ndarray, img_width: int, img_height: int) -
                 row = i // img_width
                 col = i % img_width
                 # set image bit to 1 if bit #'bit_i' is 1 (note that the 2d bits array is already initialized to 0)
-                if (word & (1 << (15 - bit_i))):
+                if (word & (1 << (16 - 1 - bit_i))):
                     bits_2d[row, col] = 1
         except IndexError:
             break
     return bits_2d
-
-
-## This func. used to be used with matplotlib's ColorMap, but is now
-## unused because I found a better way to visualize the bit remanence
-def lerp(x: float, in_min: float, in_max: float, out_min: float, out_max: float) -> float:
-    '''Linear interpolation of x from the range (in_min, in_max) to (out_min, out_max)'''
-    return out_min + ((x - in_min)/(in_max - in_min)) * (out_max - out_min)
-
-
-# def array_xor(arr1: np.ndarray, arr2: np.ndarray) -> np.ndarray:
-#     if (shape1 := np.shape(arr1)) != (shape2 := np.shape(arr2)):
-#         raise ValueError(f"numpy array shape mismatch: {shape1} vs {shape2}")
-#     if len(shape1) != 1:
-#         raise ValueError(f"numpy arrays must be 1D")
-#     length = shape1[0]
-#     result = np.zeros(length)
-#     for i in range(length):
-#         result[i] = arr1[i] ^ arr2[i]
-#     return result
-
-
-def data_loss_percent(pu_read: np.ndarray, data_original: np.ndarray, pu_ref: np.ndarray) -> float:
-    '''
-    Data Loss % = [# of set bits(Image_original XOR PU_read)]/[# of set bits(Image_original XOR PU_ref)] * 100%.
-    '''
-    set_bits_1 = bit_differences(data_original, pu_read)
-    set_bits_2 = bit_differences(data_original, pu_ref)
-    return percent(set_bits_1, set_bits_2)
-
-
-def test_data_loss_percent():
-    # incomplete tests (just silly)
-    print('start testing data_loss_percent() ...')
-    data1 = [1,2,3]
-    data2 = [2,2,3]
-    data3 = [3,3,3]
-    assert(data_loss_percent(data1, data1, data3) == 0.0)
-    assert(data_loss_percent(data2, data2, data3) == 0.0)
-    assert(data_loss_percent(data1, data2, data3) == 100)
-    
-    data1 = np.array(data1)
-    data2 = np.array(data2)
-    data3 = np.array(data3)
-    assert(data_loss_percent(data1, data1, data3) == 0.0)
-    assert(data_loss_percent(data2, data2, data3) == 0.0)
-    assert(data_loss_percent(data1, data2, data3) == 100)
-    print('done testing data_loss_percent()')
 
 
 def files_read_and_calc_data_loss(pu_read_file, data_original_file, pu_ref_file, num_words: int, num_word_skip: int = 0) -> float:
@@ -812,26 +619,12 @@ def files_read_and_calc_data_loss(pu_read_file, data_original_file, pu_ref_file,
     return percent(set_bits_top, set_bits_bot)
 
 
-def files_data_loss_percent(data_original_file, pu_read_trials_file, pu_ref_file, num_words: int, num_word_skip: int = 0) -> list[tuple[float, float]]:
+def files_data_loss_percent(data_original_file: TextIO, pu_read_trials_file: TextIO, pu_ref_file: TextIO, num_words: int, num_word_skip: int = 0) -> list[tuple[float, float]]:
     '''Run a data loss calculation against the PUF file and multiple memory dumps that come from the Arduino'''
-
-    ## Recursive calls to allow the first 3 arguments to be a file path string or an already open file
-    if isinstance(data_original_file, str):
-        # print(f"files_data_loss_percent: {data_original_file=}")
-        with open(data_original_file, 'rb') as opened_file:
-            return files_data_loss_percent(opened_file, pu_read_trials_file, pu_ref_file, num_words, num_word_skip)
-    if isinstance(pu_read_trials_file, str):
-        # print(f"files_data_loss_percent: {pu_read_trials_file=}")
-        with open(pu_read_trials_file, 'rb') as opened_file:
-            return files_data_loss_percent(data_original_file, opened_file, pu_ref_file, num_words, num_word_skip)
-    if isinstance(pu_ref_file, str):
-        # print(f"files_data_loss_percent: {pu_ref_file=}")
-        with open(pu_ref_file, 'rb') as opened_file:
-            return files_data_loss_percent(data_original_file, pu_read_trials_file, opened_file, num_words, num_word_skip)
 
     data_result: list[tuple[float, float]] = []
     val_ms = None
-    while (line := pu_read_trials_file.readline().decode('ascii')):
+    while (line := pu_read_trials_file.readline()):
         line = line.strip()
         if line.startswith("Beginning trial"): # once we find a start of trial, record the delay value (in milliseconds)
             assert val_ms is None
@@ -851,26 +644,12 @@ def files_data_loss_percent(data_original_file, pu_read_trials_file, pu_ref_file
     return data_result
 
 
-def files_data_loss_count(data_original_file, pu_read_trials_file, pu_ref_file, num_words: int) -> list[tuple[float, float]]:
+def files_data_loss_count(data_original_file: TextIO, pu_read_trials_file: TextIO, pu_ref_file: TextIO, num_words: int) -> list[tuple[float, float]]:
     '''Run a data loss calculation against the PUF file and multiple memory dumps that come from the Arduino'''
-
-    ## Recursive calls to allow the first 3 arguments to be a file path string or an already open file
-    if isinstance(data_original_file, str):
-        # print(f"files_data_loss_percent: {data_original_file=}")
-        with open(data_original_file, 'rb') as opened_file:
-            return files_data_loss_count(opened_file, pu_read_trials_file, pu_ref_file, num_words)
-    if isinstance(pu_read_trials_file, str):
-        # print(f"files_data_loss_count: {pu_read_trials_file=}")
-        with open(pu_read_trials_file, 'rb') as opened_file:
-            return files_data_loss_count(data_original_file, opened_file, pu_ref_file, num_words)
-    if isinstance(pu_ref_file, str):
-        # print(f"files_data_loss_percent: {pu_ref_file=}")
-        with open(pu_ref_file, 'rb') as opened_file:
-            return files_data_loss_count(data_original_file, pu_read_trials_file, opened_file, num_words)
 
     data_result: list[tuple[float, float]] = []
     val_ms = None
-    while (line := pu_read_trials_file.readline().decode('ascii')):
+    while (line := pu_read_trials_file.readline()):
         line = line.strip()
         if line.startswith("Beginning trial"): # once we find a start of trial, record the delay value (in milliseconds)
             assert val_ms is None
@@ -895,57 +674,6 @@ def files_data_loss_count(data_original_file, pu_read_trials_file, pu_ref_file, 
             val_ms = None
 
     return data_result
-
-
-def file_xor(file_a, file_b, output_file, num_words: int):
-    '''
-    Read 'num_words' words from 2 files and write the XOR of the words to the output file.
-    NOTE: adds more columns and additional data to the output file
-    '''
-    if isinstance(file_a, str):
-        with open(file_a, 'rb') as opened_file:
-            return file_xor(opened_file, file_b, output_file, num_words)
-    if isinstance(file_b, str):
-        with open(file_b, 'rb') as opened_file:
-            return file_xor(file_a, opened_file, output_file, num_words)
-    if isinstance(output_file, str):
-        with open(output_file, 'w') as opened_file:
-            return file_xor(file_a, file_b, opened_file, num_words)
-    
-    sum_diff_weight = 0
-
-    for _ in range(num_words):
-        word_a = file_read_next_hex4(file_a)
-        word_b = file_read_next_hex4(file_b)
-        word_out = xor(word_a, word_b)
-        diff_weight = hamming_weight(word_out)
-        sum_diff_weight += diff_weight
-        print(hex4(word_a), end=' ', file=output_file)
-        print(hex4(word_b), end=' ', file=output_file)
-        print(hex4(word_out), end=' ', file=output_file)
-        print(bin16(word_out), end=' ', file=output_file)
-        print(diff_weight, file=output_file)
-
-    print('total bit difference', sum_diff_weight, file=output_file)
-
-
-def file_xor_basic(file_a, file_b, output_file, num_words: int):
-    '''Read 'num_words' words from 2 files and write the XOR of the words to the output file.'''
-    if isinstance(file_a, str):
-        with open(file_a, 'rb') as opened_file:
-            return file_xor_basic(opened_file, file_b, output_file, num_words)
-    if isinstance(file_b, str):
-        with open(file_b, 'rb') as opened_file:
-            return file_xor_basic(file_a, opened_file, output_file, num_words)
-    if isinstance(output_file, str):
-        with open(output_file, 'w') as opened_file:
-            return file_xor_basic(file_a, file_b, opened_file, num_words)
-
-    for _ in range(num_words):
-        word_a = file_read_next_hex4(file_a)
-        word_b = file_read_next_hex4(file_b)
-        word_out = xor(word_a, word_b)
-        print(hex4(word_out), file=output_file)
 
 
 def file_seek_trial_num(file_in, trial_num: int) -> int:
@@ -1188,7 +916,7 @@ def create_heatmap_fig_2(file_path: str, bit_vote_counts: np.ndarray, width: int
 
 
 def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words: int):
-    '''Process one multi-dump input file and generate the relevant report files into the out_path directory'''
+    '''Process one multi-dump input file and generate the relevant report .txt, .npy, and .png files into the out_path directory'''
 
     if not os.path.isfile(in_path):
         print(f"ERROR: path \"{in_path}\" is not a valid path for a file")
@@ -1200,27 +928,27 @@ def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words
     num_bits = num_words * BITS_PER_WORD
 
     # Extract chip name from file path
-    name_match = re.search(r"(\w+)-([0-9a-z]+)nm-([0-9a-z]+)", in_path, re.IGNORECASE)
+    name_match = re.search(r"(\w+)-([0-9a-z]+nm-)?([0-9a-z]+)", in_path, re.IGNORECASE)
     if name_match is None:
         raise ValueError("Could not find the chip name in file path")
-    name_whole = name_match.group(0)
-    # name_man = name_match.group(1)
-    # name_nm = name_match.group(2)
-    # name_num = name_match.group(3)
+    name_man = name_match.group(1)
+    name_num = name_match.group(3)
+    chip_tag = f"{name_man} #{name_num}"
+    print(f"Chip name tag is \"{chip_tag}\"")
 
     # Check if pre-loaded captures numpy file already exists
     captures_npy_file_exists = False
-    for reduced_captures_num in range(num_captures, max(1,num_captures-10), -1):
+    for reduced_captures_num in range(num_captures, max(1, num_captures - 10), -1):
         captures_data_file_name = os.path.join(out_path, f"Captures-{reduced_captures_num}.npy")
         captures_npy_file_exists = os.path.isfile(captures_data_file_name)
         if captures_npy_file_exists:
             break
 
-    print("Loading data")
     if captures_npy_file_exists:
-        print("Found numpy data file to load instead")
+        print("Loading pre-existing numpy data file...")
         captures_data = np.load(captures_data_file_name)
     else:
+        print("Loading captures .txt file...")
         with open(in_path, "r") as hex_dump_in:
             try:
                 captures_data = file_load_captures_fallback(hex_dump_in, num_captures=num_captures, num_words=num_words)
@@ -1230,8 +958,8 @@ def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words
         
     loaded_num_captures = captures_data.shape[0]
     if loaded_num_captures != num_captures:
-        print(f"NOTE: only able to load {loaded_num_captures}/{num_captures} captures!")
-        print(f"Continuing with {loaded_num_captures} captures...")
+        print(f"NOTE: only able to load {loaded_num_captures} out of the desired {num_captures} captures!")
+        print(f"Continuing anyways with {loaded_num_captures} captures...")
         num_captures = loaded_num_captures
     
     print("Combining captures")
@@ -1248,15 +976,6 @@ def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words
     for c in range(num_captures):
         hweights[c] = np.sum(hw_vec_fn(captures_data[c]))
     hweight_avg = float(np.average(hweights))
-    hweight_avg_p = percent(hweight_avg, num_bits)
-        
-    # Save Hamming weights to a new file
-    print("Saving Hamming weights")
-    hweights_file = os.path.join(out_path, "Hamming-weights.txt")
-    with open(hweights_file, "w") as hweights_file_out:
-        for i, hw in enumerate(hweights):
-            print(i, int(hw), percent(hw, num_bits), file=hweights_file_out)
-        print(f"Average Hamming weight = {hweight_avg} = {hweight_avg_p:.3f}%", file=hweights_file_out)
 
     # Create bit stability/strength vote figures
     for num_votes in np.unique([40, num_captures]):
@@ -1277,11 +996,13 @@ def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words
         # Make linear plot
         f = plt.figure()
         ax = f.gca()
-        ax.set_title(f"{name_whole} Histogram of power-up 1's")
+        ax.set_title(f"{chip_tag} Histogram of power-up 1's")
         ax.set_xlabel("Times appeared as a 1")
         ax.set_ylabel("Bits")
         # ax.hist(binary_votes, max_votes_num + 1, align='mid')
-        ax.hist(captures_bit_votes, max_votes_num)
+        hist, bin_eds = np.histogram(captures_bit_votes, bins=np.arange(num_votes+2)-0.5)
+        # ax.hist(captures_bit_votes, max_votes_num)
+        ax.bar(bin_eds[:-1], hist, color='blue', edgecolor="black", width=0.7)
         f.savefig(os.path.join(out_path, f"Binary-votes-out-of-{num_votes}.png"))
         plt.close()
 
@@ -1339,10 +1060,11 @@ def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words
     gold_puf_fname1 = os.path.join(out_path, "Gold-PUF.txt")
     gold_puf_npy_fname = os.path.join(out_path, "Gold-PUF.npy")
     gold_puf_num_captures = num_captures
-    if os.path.isfile(gold_puf_fname1):
+    if os.path.isfile(gold_puf_npy_fname):
+        print("Loading pre-existing .npy gold PUF file")
         gold_puf_data = np.load(gold_puf_npy_fname)
     else:
-        print("Creating gold PUF")
+        print("Creating gold PUF .txt and .npy files")
         # Force the number of captures for the gold PUF to be odd (by excluding the last one)
         if gold_puf_num_captures % 2 == 0:
             gold_puf_num_captures -= 1
@@ -1355,7 +1077,6 @@ def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words
 
     # Get gold PUF Hamming Weight (to add this info to the images below)
     puf_hweight = np.sum(hw_vec_fn(gold_puf_data))
-    puf_hweight_p = percent(puf_hweight, num_bits)
 
     # Get Hamming Distance between PUF and the dumps
     print("Calculating Hamming distances for each dump and the gold PUF")
@@ -1364,37 +1085,43 @@ def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words
         hd = np.sum(hw_vec_fn(np.bitwise_xor(captures_data[i], gold_puf_data)))
         hdistances[i] = hd
     hdistances_avg = float(np.average(np.array(hdistances)))
-    hdistances_avg_p = percent(hdistances_avg, num_bits)
     # Save Hamming weights to a new file
-    print("Saving Hamming distances")
-    hdistances_file = os.path.join(out_path, "Hamming-distances.txt")
+    print("Saving captures' Hamming weight and Hamming distance to PUF")
+    hdistances_file = os.path.join(out_path, "Captures-info.txt")
     with open(hdistances_file, "w") as hdistances_file_out:
-        for i, d in enumerate(hdistances):
-            print(f"{i}: {d} bits = {percent(d, num_bits):.3f}%", file=hdistances_file_out)
-        print(f"Average Hamming distance = {hdistances_avg} = {hdistances_avg_p:.3f}%", file=hdistances_file_out)
+        print("For each capture, the Hamming Weights (HW) and Hamming Distance to the gold PUF (HD)")
+        for i, hw_hd in enumerate(zip(hweights, hdistances)):
+            hw, hd = hw_hd
+            print(f"{i}: HW={percent(hw, num_bits):.3f}%; HD={percent(hd, num_bits):.3f}%", file=hdistances_file_out)
+        min_hw, max_hw = float(np.min(hweights)), float(np.max(hweights))
+        min_hd, max_hd = float(np.min(hdistances)), float(np.max(hdistances))
+        print(f"PUF: HW={percent(puf_hweight, num_bits):.3f}%", file=hdistances_file_out)
+        print(f"Min: HW={percent(min_hw, num_bits):.3f}%; HD={percent(min_hd, num_bits):.3f}%", file=hdistances_file_out)
+        print(f"Max: HW={percent(max_hw, num_bits):.3f}%; HD={percent(max_hd, num_bits):.3f}%", file=hdistances_file_out)
+        print(f"Mean: HW={percent(hweight_avg, num_bits):.3f}%; HD={percent(hdistances_avg, num_bits):.3f}%", file=hdistances_file_out)
 
     # Create different sample images from the gold PUF
-    sizes = (64, 128, 256, 512, 1024)
+    sizes = (128, 256, 512, 1024)
     offset = 0
     offset_str = f"0x{offset:X}"
     for size in sizes:
         # "Salt and pepper" image
         s_and_p_path = os.path.join(out_path, f"Salt-and-pepper-{size}x{size}-at-{offset_str}.png")
-        create_salt_and_pepper_fig(s_and_p_path, gold_puf_data, size, size, f"{name_whole} Gold PUF {size}x{size} at {offset_str}", offset)
+        create_salt_and_pepper_fig(s_and_p_path, gold_puf_data, size, size, f"{chip_tag} Gold PUF {size}x{size} at {offset_str}", offset)
         # Heatmap image
         heatmap_path = os.path.join(out_path, f"Heatmap-{size}x{size}-at-{offset_str}.png")
-        create_heatmap_fig(heatmap_path, captures_bit_votes/num_captures, size, size, f"{name_whole} Bit State Heatmap at {offset_str}", offset)
+        create_heatmap_fig(heatmap_path, captures_bit_votes/num_captures, size, size, f"{chip_tag} Bit State Heatmap at {offset_str}", offset)
 
     # Full-chip images...
     full_size = int(NUM_BITS**0.5)
 
     # Full-chip salt-and-pepper image
     s_and_p_path = os.path.join(out_path, f"Salt-and-pepper-full.png")
-    create_salt_and_pepper_fig(s_and_p_path, gold_puf_data, full_size, full_size, f"{name_whole} Gold PUF")
+    create_salt_and_pepper_fig(s_and_p_path, gold_puf_data, full_size, full_size, f"{chip_tag} Gold PUF")
 
     # Full-chip Heatmap image
     heatmap_path = os.path.join(out_path, f"Heatmap-full.png")
-    create_heatmap_fig(heatmap_path, captures_bit_votes/num_captures, full_size, full_size, f"{name_whole} Bit State Heatmap")
+    create_heatmap_fig(heatmap_path, captures_bit_votes/num_captures, full_size, full_size, f"{chip_tag} Bit State Heatmap")
 
     # Modified heatmap image(s)
     highlight_color = np.array([0.05, 0.05, 0.95])
@@ -1412,28 +1139,7 @@ def lots_of_plots_run1(in_path: str, out_path: str, num_captures: int, num_words
     }
     for file_name, cmap in views.items():
         heatmap_path_2 = os.path.join(out_path, file_name)
-        create_heatmap_fig_2(heatmap_path_2, captures_bit_votes/num_captures, full_size, full_size, f"{name_whole} Stable Bit Heatmap", cmap=cmap)
-
-
-def ask_file_list() -> list[str]:
-    result = []
-
-    base_path = input("Enter file directory base path (and maybe the common prefix for the file names): ")
-    print("Add files to compare, one by one (entering a blank line will stop adding file)...")
-
-    while f := input("add file: "):
-        # This is intentionally string concatenation, not path concatenation!
-        path = base_path + f
-
-        if os.path.isfile(path):
-            result.append(base_path + f)
-            print(f"Added '{path}'")
-        else:
-            print(f"Skipped adding '{path}' because it is NOT a valid file path")
-    
-    print("(end of list)")
-
-    return result
+        create_heatmap_fig_2(heatmap_path_2, captures_bit_votes/num_captures, full_size, full_size, f"{chip_tag} Stable Bit Heatmap", cmap=cmap)
     
 
 def file_list_diff_print(num_words, file_list: list[str]) -> None:
@@ -1456,7 +1162,7 @@ def file_list_diff_print(num_words, file_list: list[str]) -> None:
             p = percent(diff, num_words * BITS_PER_WORD)
             print(f"* HD = {p:.3f}%")
 
-            c = stats.pearsonr(data_a, data_b).correlation
+            c = pearsonr(data_a, data_b).correlation
             print(f"* Pearson correlation = {c:.4f}")
             n += 1
 
@@ -1490,7 +1196,7 @@ def file_list_diff_save(num_words, file_list: list[str], cmat_fname: str, hdmat_
             print(f"Comparing {path_a_short} with {path_b_short}")
 
             mat_hd[i, j] = np.sum(hw_vec_fn(np.bitwise_xor(data_a, data_b))) / num_bits
-            mat_c[i, j] = stats.pearsonr(data_a, data_b).correlation
+            mat_c[i, j] = pearsonr(data_a, data_b).correlation
 
     np.save(hdmat_fname, mat_hd)
     np.save(cmat_fname, mat_c)
@@ -1531,7 +1237,10 @@ def file_list_stable_diff_save(num_words, file_list: list[str], cmat_fname: str,
 
 TemplateFileGroup = namedtuple("TemplateFileGroup", ["name", "chip_votes_file_list"])
 
-def multi_template_chip_diff(stability_threshold: float, template_file_groups: list[TemplateFileGroup], chip_file_list: list[str]) -> np.ndarray:
+def multi_template_chip_diff(template_file_groups: list[TemplateFileGroup], chip_file_list: list[str], threshold_low: float, threshold_high: float) -> np.ndarray:
+    assert 0 <= threshold_low <= 100
+    assert 0 <= threshold_high <= 100
+
     n_templates = len(template_file_groups)
     n_chips = len(chip_file_list)
     mat = np.empty((n_templates, n_chips))
@@ -1543,8 +1252,10 @@ def multi_template_chip_diff(stability_threshold: float, template_file_groups: l
         captures_and_votes = []
         for chip1_filename in group.chip_votes_file_list:
             # Get max vote count a.k.a number of trials from the filename
+            # This is a PUF-like result
             m = re.search(r"Votes-(\d+)", chip1_filename)
-            assert m is not None
+            if m is None:
+                raise ValueError(f"Votes file name is invalid: {chip1_filename}")
             num_trials = int(m.group(1))
             votes = np.load(chip1_filename)
             captures_and_votes.append( (num_trials, votes) )
@@ -1554,11 +1265,12 @@ def multi_template_chip_diff(stability_threshold: float, template_file_groups: l
 
         for j, chip_puf_filename in enumerate(chip_file_list):
             chip_puf = np.load(chip_puf_filename)
-            # Below, num_trials=1 because create_multi_votes() already divides by the total num_trials internally
-            d = heatmap_vote_distance(num_trials=1,
-                                      stability_threshold_a=stability_threshold, 
-                                    votes_a=template_votes,
-                                    words_b=chip_puf)
+            # Below, num_trials=1 because create_multi_votes() above already divides by the total num_trials internally
+            d = heatmap_vote_distance_2(num_trials=1,
+                                      threshold_low=threshold_low,
+                                      threshold_high=threshold_high,
+                                      votes_a=template_votes,
+                                      words_b=chip_puf)
             # Divide by NUM_BITS to get a value from 0.0 to 1.0 for each bit
             mat[i, j] =  1.0 - d / NUM_BITS
 
@@ -1567,17 +1279,32 @@ def multi_template_chip_diff(stability_threshold: float, template_file_groups: l
 
 def heatmap_vote_distance(num_trials: int, stability_threshold_a: float, votes_a: np.ndarray, words_b: np.ndarray) -> int:
     """Stability threshold for how stable a bit has to be in order to keep it"""
-    votes_a_stab = 2.0 * np.abs(votes_a/num_trials - 0.5) # Remap vote count to stability
+    assert 0 <= stability_threshold_a <= 100
+    votes_a_stab = 2.0 * np.abs(votes_a / num_trials - 0.5) # Remap vote count to stability
     keep_mask = np.zeros(votes_a.shape, dtype="int")
     keep_mask[votes_a_stab >= stability_threshold_a] = 1
-    words_a = create_puf_np(votes_a, (num_trials+1)//2)
+    words_a = create_puf_np(votes_a, (num_trials + 1) // 2)
     diff = np.bitwise_xor(words_a, words_b)
     diff_bits = words_to_bits_np(diff)
     diff_keep = np.bitwise_and(diff_bits, keep_mask)
     return np.sum(diff_keep)
 
 
-def plot_correlation_matrix(file_list: list[str], file_path: str, **kwargs):
+def heatmap_vote_distance_2(num_trials: int, threshold_low: float, threshold_high: float, votes_a: np.ndarray, words_b: np.ndarray) -> int:
+    """Vote thresholds for how biased a bit has to be in order to keep it"""
+    assert 0 <= threshold_low <= 100
+    assert 0 <= threshold_high <= 100
+    keep_mask = np.zeros(votes_a.shape, dtype="int")
+    keep_mask[votes_a >= threshold_high] = 1
+    keep_mask[votes_a <= threshold_low] = 1
+    words_a = create_puf_np(votes_a, (num_trials + 1) // 2)
+    diff = np.bitwise_xor(words_a, words_b)
+    diff_bits = words_to_bits_np(diff)
+    diff_keep = np.bitwise_and(diff_bits, keep_mask)
+    return np.sum(diff_keep)
+
+
+def plot_correlation_matrix(file_list: list[str], file_path: str, **kwargs) -> None:
     mat_c = np.load(file_path)
     labels = list(map(path_to_chipname, file_list))
     f = plt.figure(1)
@@ -1604,11 +1331,13 @@ def plot_correlation_matrix(file_list: list[str], file_path: str, **kwargs):
     plt.show()
 
 
-def plot_correlation_matrix_2(matrix: np.ndarray, xlabels: list[str], ylabels: list[str], **kwargs):
-    assert (len(ylabels), len(xlabels)) == matrix.shape
+def plot_correlation_matrix_2(matrix: np.ndarray, xlabels: list[str], ylabels: list[str], **kwargs) -> None:
+    assert (len(ylabels), len(xlabels)) == matrix.shape, "Mismatch between matrix shape and the labels"
     f = plt.figure(1)
-    ai = plt.matshow(matrix, 1)
-    #ai = plt.matshow(matrix, 1, vmin=0, vmax=1)
+    if (vmin := kwargs.get("vmin")) and (vmax := kwargs.get("vmax")):
+        ai = plt.matshow(matrix, 1, vmin=vmin, vmax=vmax)
+    else:
+         ai = plt.matshow(matrix, 1)
     ax = f.gca()
     f.colorbar(ai)
     ax.xaxis.tick_bottom()
@@ -1638,111 +1367,209 @@ def create_multi_votes(captures_and_votes: list[tuple[int, np.ndarray]]) -> np.n
 
 def path_to_chipname(path: str) -> str:
     """Shorten path with a chip name like "XYZ-100nm-PQR" in it to just the chip name"""
-    m = re.search(r"\\([^\\-]+-[^\\-]*nm-[^\\-]*)", path)
+    m = re.search(r"\\(\w+)-[^\\-]*n?m?-(\d+)\\", path)
     if not m:
-        raise ValueError()
-    return m.group(1)
+        # Handle names like "IDT1-1" that don't have a <#>nm specified
+        # raise ValueError(f"could not find a chip name of a specific format within \"{path}\"")
+        m = re.search(r"\\([A-Z]+\d+)-(\d+)\\", path)
+    return f"{m.group(1)}-{m.group(2)}"
 
 
-def test():
-    test_bit_difference()
-    test_hex4()
-    test_data_loss_percent()
+def block_average_2d_dump(data: np.ndarray, block_size: int) -> np.ndarray:
+    """Downscale a numpy array in a 2D manner (returns a square 2D array).
+    There's probably a numpy function to do this block-by-block averaging, but I can't find one."""
+    data_square_size = int(data.shape[0] ** 0.5)
+    assert data_square_size % block_size == 0
+    data_square = np.reshape(data, (data_square_size, data_square_size))
+    n_blocks = data_square_size // block_size
+    assert n_blocks > 0
+    data_result = np.empty((n_blocks, n_blocks))
+    for i in range(n_blocks):
+        i_b = i * block_size
+        for j in range(n_blocks):
+            j_b = j * block_size
+            block = data_square[i_b:i_b+block_size, j_b:j_b+block_size]
+            data_result[i, j] = np.average(block)
+    return data_result
 
 
-def test_bit_difference():
-    # print("begin testing")
-    assert(bit_difference(0, 0) == 0)
-    assert(bit_difference(0, 1) == 1)
-    assert(bit_difference(1, 0) == 1)
-    assert(bit_difference(1, 1) == 0)
-    assert(bit_difference(3, 1) == 1)
-    assert(bit_difference(7, 0) == 3)
-    assert(bit_difference(0xf, 0) == 4)
-    assert(bit_difference(0xff, 0) == 8)
-    assert(bit_difference(0xffff, 0) == 16)
-    assert(bit_difference(0b1010101010101010, 0b0101010101010101) == 16)
-    assert(bit_difference(0xf00f, 0) == 8)
-    assert(bit_difference(0xf00f, 0xffff) == 8)
-    # print("end testing")
+def block_average_1d_dump(data: np.ndarray, block_size: int) -> np.ndarray:
+    """Downscale a numpy array in a 1D manner.
+    There's probably a numpy function to do this block-by-block averaging, but I can't find one."""
+    assert data.shape[0] % block_size == 0
+    n_blocks = data.shape[0] // block_size
+    assert n_blocks > 0
+    data_result = np.empty((n_blocks,))
+    for i in range(n_blocks):
+        i_b = i * block_size
+        block = data[i_b:i_b+block_size]
+        data_result[i] = np.average(block)
+    return data_result
 
 
-def test_hex4():
-    assert(hex4(0) == '0000')
-    assert(hex4(1) == '0001')
-    assert(hex4(0xff) == '00FF')
+def main_experiment_with_blocking() -> None:
+    path_a = r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-5\RT-30s-50dumps.txt-results\Gold-PUF.npy"
+    path_b = r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-2\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy"
+    block_size = 64
+
+    print(f"Comparing A & B")
+    print(f"* A: {path_a}")
+    print(f"* B: {path_b}")
+
+    data_original_a = np.load(path_a)
+    print(f"A shape = {data_original_a.shape}")
+    data_original_b = np.load(path_b)
+    print(f"B shape = {data_original_b.shape}")
+
+    for block_size in [4, 16, 64, 256]:
+        data_a = block_average_2d_dump(data_original_a, block_size)
+        data_b = block_average_2d_dump(data_original_b, block_size)
+        c = pearsonr(data_a.flatten(), data_b.flatten()).correlation
+        print(f"2D block size = {block_size} words ==> Pearson correlation = {c}")
 
 
-def main_dumpfile():
-    if len(sys.argv) > 1:
-        dump_filename = sys.argv[1]
+def chip_block_correlation_matrix(chip_files_x: list[str], chip_files_y: list[str], block_size: int) -> np.ndarray:
+    corr_matrix = np.full((len(chip_files_y), len(chip_files_x)), float("NaN"))
+
+    # Create block-averaged data for each list of files
+    data_xs = [ block_average_2d_dump(np.load(path), block_size) for path in chip_files_x ]
+    data_ys = [ block_average_2d_dump(np.load(path), block_size) for path in chip_files_y ]
+
+    # Put X<=>Y correlations in matrix cells
+    for y, data_y in enumerate(data_ys):
+        flat_y = data_y.flatten()
+        for x, data_x in enumerate(data_xs):
+            if x >= y: break
+            flat_x = data_x.flatten()
+            corr_matrix[y, x] = pearsonr(flat_x, flat_y).correlation
+
+    return corr_matrix
+
+
+def stability_bins(multi_dumps: np.ndarray, num_words: int=NUM_WORDS, num_bins: int=50) -> np.ndarray:
+    """Create the "histogram" of bit stability votes for a multi-capture array of dumps."""
+    assert len(multi_dumps.shape) == 2, "expected `multi_dumps` to be an array of dump arrays"
+    assert multi_dumps.shape[0] >= num_bins, f"expected {num_bins} dumps but only got {multi_dumps.shape[0]}"
+    assert multi_dumps.shape[1] >= num_words, f"expected {num_words} words in each dump but only got {multi_dumps.shape[1]}"
+    bit_votes = create_votes_np(multi_dumps[:num_bins, :num_words])
+    _, counts = np.unique(bit_votes, return_counts=True)
+    return counts
+
+
+def chip_stability_distance_matrix(chip_files_x: list[str], chip_files_y: list[str], num_words: int=NUM_WORDS, num_dumps: int=50) -> np.ndarray:
+    corr_matrix = np.full((len(chip_files_y), len(chip_files_x)), float("NaN"))
+
+    # Create stability bins "histogram" from the captures files
+    data_xs = [ stability_bins(np.load(path), num_words, num_dumps) / num_words for path in chip_files_x ]
+    #data_ys = [ stability_bins(np.load(path), num_words, num_dumps) / num_words for path in chip_files_y ]
+    data_ys = data_xs
+
+    # Put X<=>Y correlations in matrix cells
+    for y, data_y in enumerate(data_ys):
+        for x, data_x in enumerate(data_xs):
+            # Don't process extra cells on the other side of the diagonal
+            if x >= y: break
+            # corr_matrix[y, x] = float(np.linalg.norm(data_x - data_y))
+            # corr_matrix[y, x] = float(np.sum(np.abs((data_x - data_y)**3))**(1/3))
+            corr_matrix[y, x] = pearsonr(data_x, data_y).correlation
+
+    return corr_matrix
+
+
+def main_stability_distance_matrix() -> None:
+    """Correlation matrix of 50x PUF files."""
+
+    matrix_filename = f"Stability-Dist-Matrix-Correlation.npy"
+
+    chip_files = [
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY1-90nm-2\RT-30s-50dumps.txt-results\Captures-50.npy",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY2-90nm-1\0C-240s-50dumps-2024.11.01.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-1\30C-30s-50dumps-2024.11.05.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-2\RT-30s-50dumps-2024.10.21.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-3\RT-30s-50dumps-2022.10.22.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-4\RT-30s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-5\RT-30s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-2\50_captures_15_second_delay.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-3\50_captures_15_second_delay.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-4\50_captures_15_second_delay.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-5\RT-30s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-1\RT-30s-50dumps-2024.10.22.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-2\RT-30s-50dumps-2024.10.22.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-3\2024.10.22-normal-30s-50dumps.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-4\RT-60s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT1-1\50_captures_15_second_delay.txt-results\Captures-50.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT1-3\RT-60s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT1-4\RT-60s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT1-5\RT-60s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-1\RT-30s-50dumps.txt-results\Captures-41.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-2\RT-30s-50dumps.txt-results\Captures-41.npy",
+    ]
+
+    # Verify all of the file paths before trying to (slowly) load them, so I can see an error faster
+    for path in chip_files:
+        if not os.path.isfile(path):
+            print(f"NOT a valid file path: {path}")
+
+    if not os.path.isfile(matrix_filename):
+        # Create and cache this matrix file for later runs of this script
+        print(f"Creating new matrix file \"{matrix_filename}\"")
+        matrix = chip_stability_distance_matrix(chip_files, chip_files, num_dumps=40)
+        np.save(matrix_filename, matrix)
     else:
-        dump_filename = input("enter file name: ")
+        # Load a previously cached file
+        print(f"Loading previous matrix file \"{matrix_filename}\"")
+        matrix = np.load(matrix_filename)
 
-    with open(dump_filename, 'rb') as file_in:
-        num_words = file_seek_next_data_dump_and_count_it(file_in)
-        print(f"* data word count = {num_words}")
+    labels_x = labels_y = list(map(path_to_chipname, chip_files))
 
-        hw = 0
-        for _ in range(num_words):
-            hw += hamming_weight(file_read_next_hex4(file_in))
-        hw_percent = percent(hw, num_words)
-        print(f"* Hamming weight = {hw} = {hw_percent}%")
-
-        # Go to beginning of data dump again and find the min, max, and mode word value
-        file_seek_next_data_dump_and_count_it(file_in)
-        all_data = file_read_hex4_dump_as_words(file_in, num_words)
-        max_val = np.max(all_data)
-        min_val = np.min(all_data)
-        unique, counts = np.unique(all_data, return_counts=True)
-        mode_index = np.argmax(counts)
-        mode_val = unique[mode_index]
-        mode_count = counts[mode_index]
-        del all_data
-        print(f"* max word value  = 0x{hex4_i(max_val)} = {max_val}")
-        print(f"* min word value  = 0x{hex4_i(min_val)} = {min_val}")
-        print(f"* mode word value = 0x{hex4_i(mode_val)} = {mode_val}")
-        print(f"* mode word value occurences = {mode_count} = {percent(mode_count, num_words)}% of the time")
+    plot_correlation_matrix_2(matrix, labels_x, labels_y,
+                              title="Stability Distance",
+                              ylabel="Chip",
+                              xlabel="Chip")
 
 
-def main_create_gold_puf():
-    num_captures = 11
-    assert(num_captures % 2 != 0) # must be odd so there are no voting ties
-    input_file_names = [ f"chip inh2 gold PUF/capture {i}.txt" for i in range(1, 1 + num_captures) ]
-    output_file_name = "chip inh2 gold PUF/gold PUF.txt"
-    
-    print(f"output file name: \"{output_file_name}\"")
+def main_2d_blocking_correlation_matrix() -> None:
+    """Correlation matrix of single chips Gold PUF files when averaged by square sub-blocks of the memory array viewed as a 2D square."""
 
-    # Array to map the data's bit index to number of votes that it should be set to a '1'
-    bit_votes_for_one = [ 0 for _ in range(NUM_BITS) ]
+    chip_files = [
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-5\RT-30s-50dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-4\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-3\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY5-150nm-2\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-5\RT-30s-50dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-4\RT-30s-50dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-3\RT-30s-50dumps-2022.10.22.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-2\RT-30s-50dumps-2024.10.21.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-1\30C-30s-50dumps-2024.11.05.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY1-90nm-2\RT-30s-50dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-4\RT-60s-50dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-3\2024.10.22-normal-30s-50dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-2\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy",
+    ]
 
-    for file_name in input_file_names:
-        print(f"- loading file \"{file_name}\"")
-        with open(file_name, "rb") as file_in:
-            # Read each data word from the data file
-            for word_i in range(NUM_WORDS):
-                word = file_read_next_hex4(file_in)
-                # Log the "bit vote" for each bit of the word
-                for word_bit_i in range(BITS_PER_WORD):
-                    bit_i = (word_i * BITS_PER_WORD) + word_bit_i
-                    # Test bit number 'bit_i' and increment a vote if it is set
-                    if word & (1 << word_bit_i):
-                        bit_votes_for_one[bit_i] += 1
-
-    # Iterate bit votes and print out best-voted word values
-    print(f"saving result to output file")
-    with open(output_file_name, "w") as file_out:
-        for word_i in range(NUM_WORDS):
-            word_value = 0
-            for word_bit_i in range(BITS_PER_WORD):
-                bit_i = (word_i * BITS_PER_WORD) + word_bit_i
-                # Resolve the bit votes to see if '1' or '0' wins the majority
-                if bit_votes_for_one[bit_i] > (num_captures // 2):
-                    word_value |= 1 << word_bit_i
-            print(f"{word_value:04X}", file=file_out)
+    for block_size in [ 64, 128, ]:
+        matrix_filename = f"Blocking2D-{block_size}B-Pearson-matrix.npy"
+        if not os.path.isfile(matrix_filename):
+            # Create and cache this matrix file for later runs of this script
+            print(f"Creating matrix file \"{matrix_filename}\"")
+            matrix = chip_block_correlation_matrix(chip_files, chip_files, block_size)
+            np.save(matrix_filename, matrix)
+        else:
+            # Load a previously cached file
+            print(f"Loading matrix file \"{matrix_filename}\"")
+            matrix = np.load(matrix_filename)
+        labels_x = labels_y = list(map(path_to_chipname, chip_files))
+        plot_correlation_matrix_2(matrix,
+                                  labels_x,
+                                  labels_y,
+                                  title=f"Pearson Correlation of Gold PUFs with Block Size {block_size}",
+                                  ylabel="Chip gold PUF",
+                                  xlabel="Chip gold PUF",
+                                  vmin=-1,
+                                  vmax=1)
 
 
-def main_stable_multi_chip_grid():
+def main_stable_multi_chip_grid() -> None:
     chip_template_groups = [
         TemplateFileGroup("CY-65nm", [
             r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\RT_maybe-30s-50dumps-2024.10.22.txt-results\Votes-50.npy",
@@ -1766,9 +1593,9 @@ def main_stable_multi_chip_grid():
     ]
 
     chip_files = [
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\RT_maybe-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\RT-30s-50dumps-2024.10.21.txt-results\Gold-PUF.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\RT-30s-50dumps-2022.10.22.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-1\RT_maybe-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-2\RT-30s-50dumps-2024.10.21.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY4-65nm-3\RT-30s-50dumps-2022.10.22.txt-results\Gold-PUF.npy",
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-Z\RT-30s-50dumps.txt-results\Gold-PUF.npy",
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-2\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
@@ -1777,18 +1604,21 @@ def main_stable_multi_chip_grid():
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-4\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-5\RT-30s-50dumps.txt-results\Gold-PUF.npy",
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1-rad\RT-15s-20dumps.txt-results\Gold-PUF.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\2024.10.22-normal-30s-50dumps.txt-results\Gold-PUF.npy",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-rad\RT-30s-20dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDT1-1\50_captures_15_second_delay.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-1\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-2\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-3\2024.10.22-normal-30s-50dumps.txt-results\Gold-PUF.npy",
+        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY6-250nm-rad\RT-30s-20dumps.txt-results\Gold-PUF.npy",
     ]
 
     fname1 = "Multi-HD-matrix.npy"
-    stability_threshold = 0.95
+    threshold_percent_0 = 5
+    threshold_percent_1 = 95
+    assert 0 <= threshold_percent_0 <= 100
+    assert 0 <= threshold_percent_1 <= 100
     if not os.path.isfile(fname1):
-        print(f"Creating matrix file \"{fname1}\". Stability threshold = {stability_threshold}")
-        matrix = multi_template_chip_diff(stability_threshold, chip_template_groups, chip_files)
+        print(f"Creating matrix file \"{fname1}\". Excluded middle = {threshold_percent_0}%...{threshold_percent_1}%")
+        matrix = multi_template_chip_diff(chip_template_groups, chip_files, threshold_percent_0 / 100, threshold_percent_1 / 100)
         np.save(fname1, matrix)
     else:
         print(f"Loading matrix file \"{fname1}\"")
@@ -1799,7 +1629,7 @@ def main_stable_multi_chip_grid():
     plot_correlation_matrix_2(matrix, labels_x, labels_y, title="Multi-chip Template Hamming Similarity Matrix", ylabel="Template", xlabel="Gold PUF")
 
 
-def main_stable_puf_grid():
+def main_stable_puf_grid() -> None:
     file_list = [
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\RT_maybe-30s-50dumps-2024.10.22.txt-results\Votes-50.npy",
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\RT-30s-50dumps-2024.10.21.txt-results\Votes-50.npy",
@@ -1835,7 +1665,7 @@ def main_stable_puf_grid():
     print("Done with Hamming Distances")
 
 
-def main_gold_puf_grid():
+def main_gold_puf_grid() -> None:
     file_list = sys.argv[1:]
 
     file_list = [
@@ -1857,9 +1687,6 @@ def main_gold_puf_grid():
         r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-rad\RT-30s-20dumps.txt-results\Gold-PUF.npy",
     ]
 
-    if not file_list:
-        file_list = ask_file_list()
-
     print("Input files:")
     for f in file_list:
         print(f"- '{f}'")
@@ -1877,7 +1704,7 @@ def main_gold_puf_grid():
     print("Done with Hamming Distances")
 
 
-def main_generate_plots_in_dir():
+def main_generate_plots_in_dir() -> None:
     if len(sys.argv) < 3:
         print(f"usage: {sys.argv[0]} input-dump-file output-directory [num-captures]")
         exit(1)
@@ -1890,67 +1717,25 @@ def main_generate_plots_in_dir():
     lots_of_plots_run1(sys.argv[1], sys.argv[2], num_captures=num_captures, num_words=NUM_WORDS)
 
 
-def main_generate_plots_in_dirs():
-    paths = [
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\RT_maybe-30s-50dumps-2024.10.22.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\0C-30s-50dumps-2024.10.23.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\0C-240s-50dumps-2024.10.25.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\30C-30s-50dumps-2024.11.05.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-1\50C-30s-50dumps-2024.10.22.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\50C-30s-50dumps-2024.10.21.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\RT-30s-50dumps-2024.10.21.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\0C-30s-50dumps-2024.10.23.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\0C-240s-50dumps-2024.10.25.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-2\30C-30s-50dumps-2024.11.05.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\0C-30s-50dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\30C-60s-50dumps-2024.11.05.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\50C-30s-50dumps-2024.10.24.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-3\RT-30s-50dumps-2022.10.22.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1\50_captures_15_second_delay.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-1-rad\RT-15s-20dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-2\50_captures_15_second_delay_cap.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-2\50_captures_15_second_delay.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-LP-1\50C-60s-50dumps-2024.11.08.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-LP-1\0C-240s-50dumps-2024.11.01.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-90nm-Z\RT-30s-50dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-2\50_captures_15_second_delay_cap.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-2\50_captures_15_second_delay.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-3\50_captures_15_second_delay_cap.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-3\50_captures_15_second_delay.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-4\50_captures_15_second_delay_cap.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-4\35_captures_15_second_delay_cap.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-4\50_captures_15_second_delay.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-150nm-5\RT-30s-50dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\RT-30s-50dumps-2024.10.22.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\0C-30s-50dumps-2024.10.23.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\0C-240s-50dumps-2024.10.25.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\30C-30s-24dumps-2024.10.31.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\30C-60s-50dumps-2024.11.01.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\50C-30s-50dumps-2024.10.22-incomplete.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\50C-60s-50dumps-2024.11.08.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\RT-30s-50dumps-2024.10.22.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\0C-30s-50dumps-2024.10.23.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\0C-240s-50dumps-2024.10.25.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\30C-60s-25dumps-2024.10.31.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\30C-60s-50dumps-2024.11.01.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\50C-30s-50dumps-2024.10.21.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\2024.10.22-normal-30s-50dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\0C-30s-50dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\0C-240s-50dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\30C-60s-50dumps-2024.11.05.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\50C-30s-50dumps-2024.10.24.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-4\RT-60s-50dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-rad\RT-30s-20dumps.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay_inductor.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay.txt",
-        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\IDP-130nm-1\50_captures_15_second_delay_cap.txt",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-4\RT-30s-50dumps.txt",
-        r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-65nm-5\RT-30s-50dumps.txt",
-    ]
+def main_generate_plots_in_dirs() -> None:
+    paths: list[str] = [
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-1\RT-30s-50dumps.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-2\RT-30s-50dumps.txt",
+        
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI1-1\50_captures_15_second_delay.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI1-2\50_captures_15_second_delay.txt",
+        
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-3\RT-60s-50dumps.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-4\RT-60s-50dumps.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY3-90nm-1\RT-60s-50dumps.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-4\RT-60s-50dumps.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-4\errors-RT-30s-50dumps.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-5\RT-60s-50dumps.txt",
 
-    # max_img_bit_size = 1024
-    # random_offset = random.randint(0, NUM_WORDS - (max_img_bit_size**2)//BITS_PER_WORD)
-    # print(f"Random offset = 0x{random_offset:X}")
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-1\RT-60s-50dumps.txt",
+        # r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\ISSI2-2\RT-60s-50dumps.txt",
+
+    ]
 
     start1 = timer()
     for i, p in enumerate(paths):
@@ -1960,59 +1745,50 @@ def main_generate_plots_in_dirs():
             os.mkdir(p2)
         start2 = timer()
         lots_of_plots_run1(in_path=p, out_path=p2, num_captures=50, num_words=NUM_WORDS)
-        end2 = timer()
-        duration2 = end2 - start2
-        print(f"Elapsed time: {duration2:.02f}")
+        duration2 = timer() - start2
+        print(f"Single run time: {duration2:.02f}s")
         print()
-    end1 = timer()
-    duration1 = end1 - start1
-    print(f"Total elapsed time: {duration1:.02f}")
+    duration1 = timer() - start1
+    print(f"Total elapsed time: {duration1:.02f}s")
 
 
-def main_stats():
-    fileName = r"chip inh2 gold PUF/gold PUF.txt"
-    expected_num_words = 2**18
-
-    hex_re = HEX4_WORD_PATTERN
-    word_sep = '\n'
-    ham_weight = 0
-
-    occurrences = defaultdict(lambda: 0)
-
-    with open(fileName, "r") as file:
-        print(f"Reading from file \"{fileName}\"")
-        index = -1
-        while (word := file.read(4)):
-            index += 1
-            if not hex_re.match(word):
-                raise ValueError(f"bad hex word at address {index}: '{word}'")
-            int_val = int(word, 16)
-            occurrences[int_val] += 1
-            ham_weight += bit_weight(int_val)
-            if not (sep := file.read(1)):
-                break
-            assert(sep == word_sep)
-
-    if index != expected_num_words - 1:
-        print(f"[NOTE] got {index} words, but not get the expected number of words ({expected_num_words})")
-    else:
-        print("Got the expected amount of data words")
-
-    print(f"Hamming weight: {ham_weight:,}")
-
-    num_bits = expected_num_words * 16
-    percent_ones = percent(ham_weight, num_bits)
-    print(f"Percentage of 1's in the data: {percent_ones:.4f}%")
-    print(f"Percentage of 0's in the data: {100-percent_ones:.4f}%")
-
-    max_entry = max(occurrences, key=occurrences.get)
-    max_entry_num = occurrences[max_entry]
-    max_percent = percent(max_entry_num, expected_num_words)
-    print(f"Most common value: '{hex(max_entry)}' = '{bin(max_entry)}', which occurs {max_entry_num:,} times, which is {max_percent:.3f}% of entries")
+def hamming_distance_npy(file_path1: str, file_path2: str) -> int:
+    """Get Hamming distance between the dumps in two given .npy data dump files."""
+    data1 = np.load(file_path1)
+    data2 = np.load(file_path2)
+    hamming_distance = int(np.sum(hw_vec_fn(np.bitwise_xor(data1, data2))))
+    return hamming_distance
 
 
-if __name__ == '__main__':
-    print("main(): Running\n")
+def main_directly_compare_dumps() -> None:
+    """Find the Hamming Distance between data dumps of the two given file paths."""
+    a = r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\RT-1dump-2025.02.25.txt.npy"
+    # b = r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\30C-60s-50dumps-2024.11.05.txt-results\Gold-PUF.npy"
+    # b = r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-1\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy"
+    b = r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-2\RT-30s-50dumps-2024.10.22.txt-results\Gold-PUF.npy"
+    print("Comparing A & B")
+    print(f"* A: {a}")
+    print(f"* B: {b}")
+    hd = hamming_distance_npy(a, b)
+    print(f"Hamming distance = {percent(hd, NUM_BITS)}%")
+
+
+def main_convert_dump_file() -> None:
+    """Convert a text dump file to a binary numpy dump file"""
+    path_in = r"C:\Users\ihals\OneDrive - Colostate\RAM_Lab\Senior_Design\Data\CY-250nm-3\RT-1dump-2025.02.25.txt"
+    path_out = path_in + ".npy"
+    with open(path_in, "r") as file_in:
+        data = file_load_captures_fallback(file_in, num_captures=1, num_words=NUM_WORDS)
+    np.save(path_out, data)
+    print(f"Saved \"{path_out}\"")
+
+        
+def main() -> None:
+    print("INFO: started")
+
+    # Uncomment one of the calls below...
+    # main_convert_dump_file()
+    # main_directly_compare_dumps()
     main_generate_plots_in_dirs()
     # main_create_gold_puf()
     # main_generate_plots_in_dir()
@@ -2020,4 +1796,13 @@ if __name__ == '__main__':
     # main_gold_puf_grid()
     # main_stable_puf_grid()
     # main_stable_multi_chip_grid()
-    print("\nmain(): Done")
+    # main_experiment_with_blocking()
+    # main_2d_blocking_correlation_matrix()
+    # main_stability_distance()
+    # main_stability_distance_matrix()
+
+    print("\nINFO: finished")
+
+
+if __name__ == '__main__':
+    main()
